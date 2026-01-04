@@ -51,20 +51,6 @@ changelog:
       - Merge pull request
       - Merge branch
 
-brews:
-  - name: cortex
-    repository:
-      owner: obliviious
-      name: homebrew-tap
-    homepage: "https://github.com/obliviious/cortex"
-    description: "AI Agent Orchestrator - Run AI workflows defined in YAML"
-    license: "MIT"
-    folder: Formula
-    install: |
-      bin.install "cortex"
-    test: |
-      system "#{bin}/cortex", "--version"
-
 release:
   github:
     owner: obliviious
