@@ -1,5 +1,5 @@
 {
-  "name": "cortex-ai",
+  "name": "@insien/cortex-cli",
   "version": "0.2.0",
   "description": "AI Agent Orchestrator - Run AI workflows defined in YAML",
   "keywords": [
@@ -15,11 +15,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/adityaraj/cortex.git"
+    "url": "https://github.com/obliviious/cortex.git"
   },
-  "homepage": "https://github.com/adityaraj/cortex",
+  "homepage": "https://github.com/obliviious/cortex",
   "bugs": {
-    "url": "https://github.com/adityaraj/cortex/issues"
+    "url": "https://github.com/obliviious/cortex/issues"
   },
   "bin": {
     "cortex": "./bin/cortex"

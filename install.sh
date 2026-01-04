@@ -1,10 +1,10 @@
 #!/bin/bash
 # Cortex Installer Script
-# Usage: curl -fsSL https://raw.githubusercontent.com/adityaraj/cortex/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/obliviious/cortex/main/install.sh | bash
 
 set -e
 
-REPO="adityaraj/cortex"
+REPO="obliviious/cortex"
 BINARY_NAME="cortex"
 INSTALL_DIR="/usr/local/bin"
 

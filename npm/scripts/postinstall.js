@@ -6,7 +6,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 const zlib = require('zlib');
 
-const REPO = 'adityaraj/cortex';
+const REPO = 'obliviious/cortex';
 const BINARY_NAME = 'cortex';
 const VERSION = require('../package.json').version;
 

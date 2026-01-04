@@ -5,18 +5,31 @@ import (
 	"testing"
 )
 
+// Helper to check if any error contains a substring
+func errorsContain(errs *ConfigErrors, substring string) bool {
+	if errs == nil {
+		return false
+	}
+	for _, err := range errs.Errors {
+		if strings.Contains(err.Error(), substring) {
+			return true
+		}
+	}
+	return false
+}
+
 // TestValidate_EmptyConfig tests validation of empty configurations.
 func TestValidate_EmptyConfig(t *testing.T) {
 	tests := []struct {
-		name          string
-		config        *AgentflowConfig
-		wantErrCount  int
+		name            string
+		config          *AgentflowConfig
+		wantErrCount    int
 		wantErrContains []string
 	}{
 		{
-			name:          "completely empty config",
-			config:        &AgentflowConfig{},
-			wantErrCount:  2,
+			name:            "completely empty config",
+			config:          &AgentflowConfig{},
+			wantErrCount:    2,
 			wantErrContains: []string{"no agents defined", "no tasks defined"},
 		},
 		{
@@ -26,7 +39,7 @@ func TestValidate_EmptyConfig(t *testing.T) {
 					"task1": {Agent: "agent1", Prompt: "test"},
 				},
 			},
-			wantErrCount:  2, // "no agents defined" + "references undefined agent"
+			wantErrCount:    2, // "no agents defined" + "references undefined agent"
 			wantErrContains: []string{"no agents defined"},
 		},
 		{
@@ -36,7 +49,7 @@ func TestValidate_EmptyConfig(t *testing.T) {
 					"agent1": {Tool: "claude-code"},
 				},
 			},
-			wantErrCount:  1,
+			wantErrCount:    1,
 			wantErrContains: []string{"no tasks defined"},
 		},
 	}
@@ -48,9 +61,9 @@ func TestValidate_EmptyConfig(t *testing.T) {
 				t.Fatal("expected validation error, got nil")
 			}
 
-			valErr, ok := err.(*ValidationError)
+			valErr, ok := err.(*ConfigErrors)
 			if !ok {
-				t.Fatalf("expected *ValidationError, got %T", err)
+				t.Fatalf("expected *ConfigErrors, got %T", err)
 			}
 
 			if len(valErr.Errors) != tt.wantErrCount {
@@ -58,15 +71,8 @@ func TestValidate_EmptyConfig(t *testing.T) {
 			}
 
 			for _, expectedMsg := range tt.wantErrContains {
-				found := false
-				for _, errMsg := range valErr.Errors {
-					if strings.Contains(errMsg, expectedMsg) {
-						found = true
-						break
-					}
-				}
-				if !found {
-					t.Errorf("expected error message containing %q, got errors: %v", expectedMsg, valErr.Errors)
+				if !errorsContain(valErr, expectedMsg) {
+					t.Errorf("expected error message containing %q, got errors: %v", expectedMsg, valErr.Error())
 				}
 			}
 		})
@@ -76,9 +82,9 @@ func TestValidate_EmptyConfig(t *testing.T) {
 // TestValidate_AgentValidation tests agent-level validation.
 func TestValidate_AgentValidation(t *testing.T) {
 	tests := []struct {
-		name          string
-		agents        map[string]AgentConfig
-		tasks         map[string]TaskConfig
+		name            string
+		agents          map[string]AgentConfig
+		tasks           map[string]TaskConfig
 		wantErrContains []string
 	}{
 		{
@@ -99,7 +105,7 @@ func TestValidate_AgentValidation(t *testing.T) {
 			tasks: map[string]TaskConfig{
 				"task1": {Agent: "agent1", Prompt: "test"},
 			},
-			wantErrContains: []string{`agent "agent1": unsupported tool "invalid-tool"`},
+			wantErrContains: []string{`unsupported tool "invalid-tool"`},
 		},
 		{
 			name: "valid supported tools",
@@ -134,21 +140,14 @@ func TestValidate_AgentValidation(t *testing.T) {
 				t.Fatal("expected validation error, got nil")
 			}
 
-			valErr, ok := err.(*ValidationError)
+			valErr, ok := err.(*ConfigErrors)
 			if !ok {
-				t.Fatalf("expected *ValidationError, got %T", err)
+				t.Fatalf("expected *ConfigErrors, got %T", err)
 			}
 
 			for _, expectedMsg := range tt.wantErrContains {
-				found := false
-				for _, errMsg := range valErr.Errors {
-					if strings.Contains(errMsg, expectedMsg) {
-						found = true
-						break
-					}
-				}
-				if !found {
-					t.Errorf("expected error containing %q, got errors: %v", expectedMsg, valErr.Errors)
+				if !errorsContain(valErr, expectedMsg) {
+					t.Errorf("expected error containing %q, got errors: %v", expectedMsg, valErr.Error())
 				}
 			}
 		})
@@ -162,8 +161,8 @@ func TestValidate_TaskValidation(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		tasks         map[string]TaskConfig
+		name            string
+		tasks           map[string]TaskConfig
 		wantErrContains []string
 	}{
 		{
@@ -178,35 +177,35 @@ func TestValidate_TaskValidation(t *testing.T) {
 			tasks: map[string]TaskConfig{
 				"task1": {Agent: "nonexistent", Prompt: "test"},
 			},
-			wantErrContains: []string{`task "task1": references undefined agent "nonexistent"`},
+			wantErrContains: []string{`references undefined agent "nonexistent"`},
 		},
 		{
 			name: "missing both prompt and prompt_file",
 			tasks: map[string]TaskConfig{
 				"task1": {Agent: "agent1"},
 			},
-			wantErrContains: []string{`task "task1": requires either 'prompt' or 'prompt_file'`},
+			wantErrContains: []string{`task "task1" has no prompt defined`},
 		},
 		{
 			name: "both prompt and prompt_file specified",
 			tasks: map[string]TaskConfig{
 				"task1": {Agent: "agent1", Prompt: "test", PromptFile: "test.txt"},
 			},
-			wantErrContains: []string{`task "task1": cannot have both 'prompt' and 'prompt_file'`},
+			wantErrContains: []string{`cannot have both 'prompt' and 'prompt_file'`},
 		},
 		{
 			name: "undefined dependency",
 			tasks: map[string]TaskConfig{
 				"task1": {Agent: "agent1", Prompt: "test", Needs: []string{"nonexistent"}},
 			},
-			wantErrContains: []string{`task "task1": depends on undefined task "nonexistent"`},
+			wantErrContains: []string{`depends on undefined task "nonexistent"`},
 		},
 		{
 			name: "self-dependency",
 			tasks: map[string]TaskConfig{
 				"task1": {Agent: "agent1", Prompt: "test", Needs: []string{"task1"}},
 			},
-			wantErrContains: []string{`task "task1": cannot depend on itself`},
+			wantErrContains: []string{`cannot depend on itself`},
 		},
 	}
 
@@ -222,21 +221,14 @@ func TestValidate_TaskValidation(t *testing.T) {
 				t.Fatal("expected validation error, got nil")
 			}
 
-			valErr, ok := err.(*ValidationError)
+			valErr, ok := err.(*ConfigErrors)
 			if !ok {
-				t.Fatalf("expected *ValidationError, got %T", err)
+				t.Fatalf("expected *ConfigErrors, got %T", err)
 			}
 
 			for _, expectedMsg := range tt.wantErrContains {
-				found := false
-				for _, errMsg := range valErr.Errors {
-					if strings.Contains(errMsg, expectedMsg) {
-						found = true
-						break
-					}
-				}
-				if !found {
-					t.Errorf("expected error containing %q, got errors: %v", expectedMsg, valErr.Errors)
+				if !errorsContain(valErr, expectedMsg) {
+					t.Errorf("expected error containing %q, got errors: %v", expectedMsg, valErr.Error())
 				}
 			}
 		})
@@ -250,9 +242,9 @@ func TestValidate_CircularDependencies(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		tasks         map[string]TaskConfig
-		wantErr       bool
+		name            string
+		tasks           map[string]TaskConfig
+		wantErr         bool
 		wantErrContains string
 	}{
 		{
@@ -261,7 +253,7 @@ func TestValidate_CircularDependencies(t *testing.T) {
 				"task1": {Agent: "agent1", Prompt: "test1", Needs: []string{"task2"}},
 				"task2": {Agent: "agent1", Prompt: "test2", Needs: []string{"task1"}},
 			},
-			wantErr:       true,
+			wantErr:         true,
 			wantErrContains: "circular dependency detected",
 		},
 		{
@@ -271,7 +263,7 @@ func TestValidate_CircularDependencies(t *testing.T) {
 				"task2": {Agent: "agent1", Prompt: "test2", Needs: []string{"task3"}},
 				"task3": {Agent: "agent1", Prompt: "test3", Needs: []string{"task1"}},
 			},
-			wantErr:       true,
+			wantErr:         true,
 			wantErrContains: "circular dependency detected",
 		},
 		{
@@ -279,7 +271,7 @@ func TestValidate_CircularDependencies(t *testing.T) {
 			tasks: map[string]TaskConfig{
 				"task1": {Agent: "agent1", Prompt: "test1", Needs: []string{"task1"}},
 			},
-			wantErr:       true,
+			wantErr:         true,
 			wantErrContains: "cannot depend on itself",
 		},
 		{
@@ -334,9 +326,9 @@ func TestValidate_TemplateVariables(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		tasks         map[string]TaskConfig
-		wantErr       bool
+		name            string
+		tasks           map[string]TaskConfig
+		wantErr         bool
 		wantErrContains string
 	}{
 		{
@@ -352,7 +344,7 @@ func TestValidate_TemplateVariables(t *testing.T) {
 			tasks: map[string]TaskConfig{
 				"task1": {Agent: "agent1", Prompt: "Use output: {{outputs.nonexistent}}"},
 			},
-			wantErr:       true,
+			wantErr:         true,
 			wantErrContains: `template references undefined task "nonexistent"`,
 		},
 		{
@@ -361,7 +353,7 @@ func TestValidate_TemplateVariables(t *testing.T) {
 				"task1": {Agent: "agent1", Prompt: "first"},
 				"task2": {Agent: "agent1", Prompt: "Use output: {{outputs.task1}}"},
 			},
-			wantErr:       true,
+			wantErr:         true,
 			wantErrContains: `template references "task1" which is not in 'needs'`,
 		},
 		{
@@ -415,23 +407,23 @@ func TestValidate_TemplateVariables(t *testing.T) {
 	}
 }
 
-// TestValidateTemplateVars tests the template variable validation function directly.
-func TestValidateTemplateVars(t *testing.T) {
+// TestValidateTemplateVarsStructured tests the template variable validation function directly.
+func TestValidateTemplateVarsStructured(t *testing.T) {
 	tests := []struct {
-		name          string
-		taskName      string
-		prompt        string
-		needs         []string
-		tasks         map[string]TaskConfig
-		wantErrCount  int
+		name            string
+		taskName        string
+		prompt          string
+		needs           []string
+		tasks           map[string]TaskConfig
+		wantErrCount    int
 		wantErrContains string
 	}{
 		{
-			name:     "no template vars",
-			taskName: "task1",
-			prompt:   "plain prompt",
-			needs:    []string{},
-			tasks:    map[string]TaskConfig{},
+			name:         "no template vars",
+			taskName:     "task1",
+			prompt:       "plain prompt",
+			needs:        []string{},
+			tasks:        map[string]TaskConfig{},
 			wantErrCount: 0,
 		},
 		{
@@ -445,12 +437,12 @@ func TestValidateTemplateVars(t *testing.T) {
 			wantErrCount: 0,
 		},
 		{
-			name:     "template references undefined task",
-			taskName: "task2",
-			prompt:   "Use {{outputs.undefined}}",
-			needs:    []string{},
-			tasks:    map[string]TaskConfig{},
-			wantErrCount: 1,
+			name:            "template references undefined task",
+			taskName:        "task2",
+			prompt:          "Use {{outputs.undefined}}",
+			needs:           []string{},
+			tasks:           map[string]TaskConfig{},
+			wantErrCount:    1,
 			wantErrContains: "template references undefined task",
 		},
 		{
@@ -461,21 +453,21 @@ func TestValidateTemplateVars(t *testing.T) {
 			tasks: map[string]TaskConfig{
 				"task1": {Prompt: "test"},
 			},
-			wantErrCount: 1,
+			wantErrCount:    1,
 			wantErrContains: "which is not in 'needs'",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			errors := validateTemplateVars(tt.taskName, tt.prompt, tt.needs, tt.tasks)
+			errors := validateTemplateVarsStructured("test.yml", tt.taskName, tt.prompt, tt.needs, tt.tasks)
 			if len(errors) != tt.wantErrCount {
 				t.Errorf("expected %d errors, got %d: %v", tt.wantErrCount, len(errors), errors)
 			}
 			if tt.wantErrContains != "" {
 				found := false
 				for _, err := range errors {
-					if strings.Contains(err, tt.wantErrContains) {
+					if strings.Contains(err.Error(), tt.wantErrContains) {
 						found = true
 						break
 					}
@@ -546,31 +538,37 @@ func TestDetectCycles(t *testing.T) {
 	}
 }
 
-// TestValidationError_Error tests the ValidationError error message formatting.
-func TestValidationError_Error(t *testing.T) {
+// TestConfigErrors_Error tests the ConfigErrors error message formatting.
+func TestConfigErrors_Error(t *testing.T) {
 	tests := []struct {
-		name   string
-		errors []string
-		want   string
+		name     string
+		errors   []*ConfigError
+		contains string
 	}{
 		{
-			name:   "single error",
-			errors: []string{"error 1"},
-			want:   "validation failed with 1 error(s):\n  - error 1",
+			name: "single error",
+			errors: []*ConfigError{
+				{Message: "error 1"},
+			},
+			contains: "error 1",
 		},
 		{
-			name:   "multiple errors",
-			errors: []string{"error 1", "error 2", "error 3"},
-			want:   "validation failed with 3 error(s):\n  - error 1\n  - error 2\n  - error 3",
+			name: "multiple errors",
+			errors: []*ConfigError{
+				{Message: "error 1"},
+				{Message: "error 2"},
+				{Message: "error 3"},
+			},
+			contains: "3 configuration errors",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ve := &ValidationError{Errors: tt.errors}
-			got := ve.Error()
-			if got != tt.want {
-				t.Errorf("ValidationError.Error() = %q, want %q", got, tt.want)
+			ce := &ConfigErrors{Errors: tt.errors}
+			got := ce.Error()
+			if !strings.Contains(got, tt.contains) {
+				t.Errorf("ConfigErrors.Error() = %q, want to contain %q", got, tt.contains)
 			}
 		})
 	}

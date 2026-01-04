@@ -24,36 +24,42 @@ Cortex is a powerful CLI tool that orchestrates AI agent workflows defined in YA
 
 ## Installation
 
-### Quick Install (Recommended)
+### npm (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/adityaraj/cortex/main/install.sh | bash
+npm install -g @insien/cortex-cli
+```
+
+### Quick Install (Shell)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/obliviious/cortex/main/install.sh | bash
 ```
 
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew tap adityaraj/tap
+brew tap obliviious/tap
 brew install cortex
 ```
 
 ### Go Install
 
 ```bash
-go install github.com/adityaraj/cortex/cmd/agentflow@latest
+go install github.com/obliviious/cortex/cmd/agentflow@latest
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/adityaraj/cortex.git
+git clone https://github.com/obliviious/cortex.git
 cd cortex
 make install
 ```
 
 ### Manual Download
 
-Download the latest release for your platform from [GitHub Releases](https://github.com/adityaraj/cortex/releases).
+Download the latest release for your platform from [GitHub Releases](https://github.com/obliviious/cortex/releases).
 
 ## Quick Start
 

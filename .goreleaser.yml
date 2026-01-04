@@ -56,9 +56,9 @@ changelog:
 brews:
   - name: cortex
     repository:
-      owner: adityaraj
+      owner: obliviious
       name: homebrew-tap
-    homepage: "https://github.com/adityaraj/cortex"
+    homepage: "https://github.com/obliviious/cortex"
     description: "AI Agent Orchestrator - Run AI workflows defined in YAML"
     license: "MIT"
     folder: Formula
@@ -69,7 +69,7 @@ brews:
 
 release:
   github:
-    owner: adityaraj
+    owner: obliviious
     name: cortex
   draft: false
   prerelease: auto
