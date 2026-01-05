@@ -11,12 +11,12 @@ INSTALL_DIR="/usr/local/bin"
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
+ORANGE='\033[38;5;208m'
+DIM='\033[2m'
 NC='\033[0m' # No Color
 
 print_banner() {
-    echo -e "${CYAN}"
+    echo -e "${ORANGE}"
     echo "   ██████╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗"
     echo "  ██╔════╝██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝╚██╗██╔╝"
     echo "  ██║     ██║   ██║██████╔╝   ██║   █████╗   ╚███╔╝ "
@@ -24,12 +24,12 @@ print_banner() {
     echo "  ╚██████╗╚██████╔╝██║  ██║   ██║   ███████╗██╔╝ ██╗"
     echo "   ╚═════╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝"
     echo -e "${NC}"
-    echo "  AI Agent Orchestrator Installer"
+    echo -e "  ${DIM}AI Agent Orchestrator Installer${NC}"
     echo ""
 }
 
 info() {
-    echo -e "${CYAN}ℹ ${NC}$1"
+    echo -e "${ORANGE}ℹ ${NC}$1"
 }
 
 success() {
@@ -42,7 +42,7 @@ error() {
 }
 
 warn() {
-    echo -e "${YELLOW}⚠ ${NC}$1"
+    echo -e "${ORANGE}⚠ ${NC}$1"
 }
 
 # Detect OS and architecture
@@ -146,7 +146,7 @@ verify_installation() {
         echo "  Version: $INSTALLED_VERSION"
         echo "  Location: $(which cortex)"
         echo ""
-        echo -e "  ${CYAN}Quick Start:${NC}"
+        echo -e "  ${ORANGE}Quick Start:${NC}"
         echo "    cortex validate    # Validate your Cortexfile"
         echo "    cortex run         # Run your workflow"
         echo "    cortex sessions    # View past sessions"
