@@ -7,30 +7,6 @@ import (
 	"path/filepath"
 )
 
-// Cortex ASCII art - neural network style
-const asciiArt = `
-%s       ○━━━━━○       ○━━━━━○%s
-%s        ╲   ╱ ╲     ╱ ╲   ╱%s
-%s         ○━━━○━━━○━━━○━━━○%s
-%s        ╱ ╲ ╱   ╲ ╱   ╲ ╱ ╲%s
-%s       ○   ○     ○     ○   ○%s
-
-%s  ██████╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗%s
-%s ██╔════╝██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝╚██╗██╔╝%s
-%s ██║     ██║   ██║██████╔╝   ██║   █████╗   ╚███╔╝%s
-%s ██║     ██║   ██║██╔══██╗   ██║   ██╔══╝   ██╔██╗%s
-%s ╚██████╗╚██████╔╝██║  ██║   ██║   ███████╗██╔╝ ██╗%s
-%s  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝%s
-
-%s       ○   ○     ○     ○   ○%s
-%s        ╲ ╱ ╲   ╱ ╲   ╱ ╲ ╱%s
-%s         ○━━━○━━━○━━━○━━━○%s
-%s        ╱   ╲ ╱     ╲ ╱   ╲%s
-%s       ○━━━━━○       ○━━━━━○%s
-
-%s          ⚡ AI Agent Orchestrator ⚡%s
-`
-
 // PrintBanner prints the welcome banner with ASCII art
 func PrintBanner(version string) {
 	// Get username
@@ -49,48 +25,38 @@ func PrintBanner(version string) {
 
 	fmt.Println()
 
-	// Welcome message
-	welcomeMsg := fmt.Sprintf("Welcome back %s!", username)
-	fmt.Printf("         %s%s%s\n", Bold+BrightCyan, welcomeMsg, Reset)
+	// Print banner with clean design
+	border := Blue + "  ╭────────────────────────────────────────────────────────╮" + Reset
+	borderB := Blue + "  ╰────────────────────────────────────────────────────────╯" + Reset
+	side := Blue + "  │" + Reset
+	sideEnd := Blue + "│" + Reset
 
-	// Print ASCII art with colors
-	fmt.Printf(asciiArt,
-		// Top neural network (5 lines)
-		BrightMagenta, Reset,
-		Dim, Reset,
-		BrightMagenta, Reset,
-		Dim, Reset,
-		BrightMagenta, Reset,
-		// CORTEX text (6 lines)
-		BrightCyan+Bold, Reset,
-		BrightCyan+Bold, Reset,
-		BrightCyan+Bold, Reset,
-		BrightCyan+Bold, Reset,
-		BrightCyan+Bold, Reset,
-		BrightCyan+Bold, Reset,
-		// Bottom neural network (5 lines)
-		BrightMagenta, Reset,
-		Dim, Reset,
-		BrightMagenta, Reset,
-		Dim, Reset,
-		BrightMagenta, Reset,
-		// Tagline
-		BrightYellow, Reset,
-	)
+	fmt.Println(border)
+	fmt.Println(side + "                                                          " + sideEnd)
+	fmt.Printf("%s   %s ██████╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗%s      %s\n", side, Cyan+Bold, Reset, sideEnd)
+	fmt.Printf("%s   %s██╔════╝██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝╚██╗██╔╝%s      %s\n", side, Cyan+Bold, Reset, sideEnd)
+	fmt.Printf("%s   %s██║     ██║   ██║██████╔╝   ██║   █████╗   ╚███╔╝%s       %s\n", side, Cyan+Bold, Reset, sideEnd)
+	fmt.Printf("%s   %s██║     ██║   ██║██╔══██╗   ██║   ██╔══╝   ██╔██╗%s       %s\n", side, Cyan+Bold, Reset, sideEnd)
+	fmt.Printf("%s   %s╚██████╗╚██████╔╝██║  ██║   ██║   ███████╗██╔╝ ██╗%s      %s\n", side, Cyan+Bold, Reset, sideEnd)
+	fmt.Printf("%s   %s ╚═════╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝%s      %s\n", side, Cyan+Bold, Reset, sideEnd)
+	fmt.Println(side + "                                                          " + sideEnd)
+	fmt.Printf("%s            %sAI Agent Orchestrator%s                      %s\n", side, Green, Reset, sideEnd)
+	fmt.Println(side + "                                                          " + sideEnd)
+	fmt.Println(borderB)
+
+	// Welcome message
+	fmt.Printf("\n  %sWelcome, %s!%s\n", Bold+White, username, Reset)
 
 	// Info line
-	fmt.Printf("\n      %sv%s%s · %sCortex%s · %sAI Agent Orchestrator%s\n",
+	fmt.Printf("  %sv%s%s  %s%s%s\n\n",
 		Dim, version, Reset,
-		BrightCyan+Bold, Reset,
-		Dim, Reset,
+		Dim, displayPath, Reset,
 	)
-	fmt.Printf("              %s%s%s\n", Dim, displayPath, Reset)
-	fmt.Println()
 }
 
 // PrintCompactBanner prints a minimal banner
 func PrintCompactBanner(version string) {
-	fmt.Printf("\n%s⧫ Cortex%s v%s\n\n", BrightCyan+Bold, Reset, version)
+	fmt.Printf("\n%s◆ Cortex%s v%s\n\n", Cyan+Bold, Reset, version)
 }
 
 // PrintSessionInfo prints session information
@@ -109,26 +75,31 @@ func PrintSessionInfo(sessionID, outputDir string) {
 
 // PrintDivider prints a horizontal divider
 func PrintDivider() {
-	fmt.Printf("%s────────────────────────────────────────%s\n", Dim, Reset)
+	fmt.Printf("\n%s─────────────────────────────────────────────%s\n", Blue, Reset)
 }
 
 // PrintExecutionPlan prints the execution plan with colors
 func PrintExecutionPlan(tasks []TaskInfo) {
-	fmt.Printf("%s%sExecution Plan:%s\n", Bold, BrightCyan, Reset)
+	fmt.Printf("  %s%sExecution Plan%s\n", Bold, Cyan, Reset)
+	fmt.Printf("  %s───────────────%s\n", Blue, Reset)
 	for i, task := range tasks {
 		deps := ""
 		if len(task.Dependencies) > 0 {
-			deps = fmt.Sprintf(" %s[needs: %v]%s", Dim, task.Dependencies, Reset)
+			deps = fmt.Sprintf(" %s← %v%s", Dim, task.Dependencies, Reset)
 		}
-		fmt.Printf("  %s%d.%s %s%s%s (%s%s%s → %s%s%s)%s\n",
-			BrightYellow, i+1, Reset,
-			Bold, task.Name, Reset,
+		fmt.Printf("  %s%d.%s %s%s%s\n",
+			White, i+1, Reset,
+			Bold+White, task.Name, Reset,
+		)
+		fmt.Printf("     %s%s%s %s· %s%s%s\n",
 			Cyan, task.Agent, Reset,
-			Magenta, task.Tool, Reset,
-			deps,
+			Dim, Green, task.Tool, Reset,
 		)
 		if task.Model != "" {
 			fmt.Printf("     %smodel: %s%s\n", Dim, task.Model, Reset)
+		}
+		if deps != "" {
+			fmt.Printf("     %s\n", deps)
 		}
 	}
 	fmt.Println()
@@ -147,16 +118,17 @@ type TaskInfo struct {
 func PrintTaskStart(index, total int, name, agent, tool, model string) {
 	modelStr := ""
 	if model != "" {
-		modelStr = "/" + model
+		modelStr = " · " + model
 	}
-	fmt.Printf("\n%s[%d/%d]%s %s%s%s\n",
-		BrightYellow, index, total, Reset,
-		Bold+BrightCyan, name, Reset,
+	fmt.Printf("\n%s┌─%s %s[%d/%d]%s %s%s%s\n",
+		Blue, Reset,
+		Dim, index, total, Reset,
+		Bold+White, name, Reset,
 	)
-	fmt.Printf("  %sAgent:%s %s (%s%s%s%s)\n",
-		Dim, Reset,
-		agent,
-		Magenta, tool, modelStr, Reset,
+	fmt.Printf("%s│%s  %s%s%s %s· %s%s%s%s\n",
+		Blue, Reset,
+		Cyan, agent, Reset,
+		Dim, Green, tool, modelStr, Reset,
 	)
 }
 
@@ -164,27 +136,26 @@ func PrintTaskStart(index, total int, name, agent, tool, model string) {
 func PrintTaskStatus(status string, success bool, duration string) {
 	var statusStr string
 	if success {
-		statusStr = fmt.Sprintf("%s✓ %s%s (%s)", BrightGreen, status, Reset, duration)
+		statusStr = fmt.Sprintf("%s✓ %s%s %s(%s)%s", Green, status, Reset, Dim, duration, Reset)
 	} else {
-		statusStr = fmt.Sprintf("%s✗ %s%s (%s)", BrightRed, status, Reset, duration)
+		statusStr = fmt.Sprintf("%s✗ %s%s %s(%s)%s", Red, status, Reset, Dim, duration, Reset)
 	}
-	fmt.Printf("  %sStatus:%s %s\n", Dim, Reset, statusStr)
+	fmt.Printf("%s└─%s %s\n", Blue, Reset, statusStr)
 }
 
 // PrintTaskRunning prints running status
 func PrintTaskRunning() {
-	fmt.Printf("  %sStatus:%s %s⟳ Running...%s\n", Dim, Reset, BrightYellow, Reset)
+	fmt.Printf("%s│%s  %s● Running...%s\n", Blue, Reset, Yellow, Reset)
 }
 
 // PrintSummary prints the final summary
 func PrintSummary(success bool, outputDir string) {
-	fmt.Println()
 	PrintDivider()
 
 	if success {
-		fmt.Printf("%s✓ All tasks completed successfully!%s\n", BrightGreen+Bold, Reset)
+		fmt.Printf("\n  %s✓ All tasks completed successfully%s\n", Green+Bold, Reset)
 	} else {
-		fmt.Printf("%s✗ Workflow completed with failures%s\n", BrightRed+Bold, Reset)
+		fmt.Printf("\n  %s✗ Workflow completed with failures%s\n", Red+Bold, Reset)
 	}
 
 	// Shorten output path
@@ -193,8 +164,7 @@ func PrintSummary(success bool, outputDir string) {
 	if homeDir != "" && len(outputDir) > len(homeDir) && outputDir[:len(homeDir)] == homeDir {
 		displayPath = "~" + outputDir[len(homeDir):]
 	}
-	fmt.Printf("%sResults saved to: %s%s\n", Dim, displayPath, Reset)
-	fmt.Println()
+	fmt.Printf("  %sResults: %s%s\n\n", Dim, displayPath, Reset)
 }
 
 // GetCortexHome returns the cortex home directory (~/.cortex)
@@ -204,4 +174,16 @@ func GetCortexHome() (string, error) {
 		return "", err
 	}
 	return filepath.Join(homeDir, ".cortex"), nil
+}
+
+// PrintStreamStart prints a visual separator before streaming output
+func PrintStreamStart() {
+	fmt.Printf("%s│%s\n", Blue, Reset)
+	fmt.Printf("%s│%s  %sAgent output:%s\n", Blue, Reset, Dim, Reset)
+	fmt.Printf("%s│%s  %s─────────────%s\n", Blue, Reset, Dim, Reset)
+}
+
+// PrintStreamEnd prints a visual separator after streaming output
+func PrintStreamEnd() {
+	fmt.Printf("%s│%s  %s─────────────%s\n", Blue, Reset, Dim, Reset)
 }

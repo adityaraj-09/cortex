@@ -4,7 +4,9 @@ package ui
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"runtime"
+	"strings"
 )
 
 // ANSI color codes
@@ -118,4 +120,81 @@ func Task(name, status string, success bool) {
 		statusColor = RedText(status)
 	}
 	fmt.Printf("  %s %s\n", BoldText(name), statusColor)
+}
+
+// Regex patterns for markdown stripping
+var (
+	// Headers: # ## ### etc
+	headerRegex = regexp.MustCompile(`(?m)^#{1,6}\s+`)
+	// Bold: **text** or __text__
+	boldRegex = regexp.MustCompile(`(\*\*|__)(.+?)(\*\*|__)`)
+	// Italic: *text* or _text_
+	italicRegex = regexp.MustCompile(`(\*|_)(.+?)(\*|_)`)
+	// Code blocks: ```lang\ncode\n```
+	codeBlockRegex = regexp.MustCompile("(?s)```[a-z]*\\n?(.*?)```")
+	// Inline code: `code`
+	inlineCodeRegex = regexp.MustCompile("`([^`]+)`")
+	// Links: [text](url)
+	linkRegex = regexp.MustCompile(`\[([^\]]+)\]\([^\)]+\)`)
+	// Images: ![alt](url)
+	imageRegex = regexp.MustCompile(`!\[([^\]]*)\]\([^\)]+\)`)
+	// Blockquotes: > text
+	blockquoteRegex = regexp.MustCompile(`(?m)^>\s+`)
+	// Horizontal rules: --- or *** or ___
+	hrRegex = regexp.MustCompile(`(?m)^[-*_]{3,}\s*$`)
+	// Unordered lists: - or * or +
+	ulRegex = regexp.MustCompile(`(?m)^[\s]*[-*+]\s+`)
+	// Ordered lists: 1. 2. etc
+	olRegex = regexp.MustCompile(`(?m)^[\s]*\d+\.\s+`)
+	// Strikethrough: ~~text~~
+	strikeRegex = regexp.MustCompile(`~~(.+?)~~`)
+)
+
+// StripMarkdown removes markdown formatting and returns plain text
+func StripMarkdown(text string) string {
+	result := text
+
+	// Remove code blocks first (preserve content)
+	result = codeBlockRegex.ReplaceAllString(result, "$1")
+
+	// Remove inline code (preserve content)
+	result = inlineCodeRegex.ReplaceAllString(result, "$1")
+
+	// Remove images (replace with alt text or empty)
+	result = imageRegex.ReplaceAllString(result, "$1")
+
+	// Remove links (preserve link text)
+	result = linkRegex.ReplaceAllString(result, "$1")
+
+	// Remove headers
+	result = headerRegex.ReplaceAllString(result, "")
+
+	// Remove bold formatting
+	result = boldRegex.ReplaceAllString(result, "$2")
+
+	// Remove italic formatting
+	result = italicRegex.ReplaceAllString(result, "$2")
+
+	// Remove strikethrough
+	result = strikeRegex.ReplaceAllString(result, "$1")
+
+	// Remove blockquotes
+	result = blockquoteRegex.ReplaceAllString(result, "")
+
+	// Remove horizontal rules
+	result = hrRegex.ReplaceAllString(result, "")
+
+	// Simplify list markers to plain bullets
+	result = ulRegex.ReplaceAllString(result, "  • ")
+	result = olRegex.ReplaceAllStringFunc(result, func(match string) string {
+		return "  • "
+	})
+
+	// Clean up extra blank lines
+	result = regexp.MustCompile(`\n{3,}`).ReplaceAllString(result, "\n\n")
+
+	// Trim leading/trailing whitespace
+	result = strings.TrimSpace(result)
+
+	return result
 }

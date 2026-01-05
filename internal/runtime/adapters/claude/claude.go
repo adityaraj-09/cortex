@@ -10,6 +10,7 @@ import (
 	"os/exec"
 
 	"github.com/adityaraj/agentflow/internal/runtime"
+	"github.com/adityaraj/agentflow/internal/ui"
 )
 
 // Adapter implements the Agent interface for claude-code CLI.
@@ -59,6 +60,8 @@ func (a *Adapter) Run(ctx context.Context, task runtime.Task) (runtime.Result, e
 	var stdout, stderr bytes.Buffer
 
 	if a.streamLogs {
+		// Print visual separator before streaming
+		ui.PrintStreamStart()
 		// Stream to terminal AND capture for result
 		cmd.Stdout = io.MultiWriter(os.Stdout, &stdout)
 		cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
@@ -69,8 +72,16 @@ func (a *Adapter) Run(ctx context.Context, task runtime.Task) (runtime.Result, e
 
 	err := cmd.Run()
 
+	if a.streamLogs {
+		// Print visual separator after streaming
+		ui.PrintStreamEnd()
+	}
+
+	// Strip markdown from output for cleaner display
+	cleanStdout := ui.StripMarkdown(stdout.String())
+
 	result := runtime.Result{
-		Stdout:   stdout.String(),
+		Stdout:   cleanStdout,
 		Stderr:   stderr.String(),
 		ExitCode: 0,
 		Success:  true,

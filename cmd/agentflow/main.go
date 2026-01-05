@@ -31,6 +31,7 @@ var (
 	configFile  string
 	verbose     bool
 	streamLogs  bool
+	noStream    bool
 	noColor     bool
 	compact     bool
 	parallel    bool
@@ -61,7 +62,8 @@ func main() {
 
 	runCmd.Flags().StringVarP(&configFile, "file", "f", "", "Path to Cortexfile (default: auto-detect)")
 	runCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
-	runCmd.Flags().BoolVarP(&streamLogs, "stream", "s", false, "Stream real-time logs from agents")
+	runCmd.Flags().BoolVarP(&streamLogs, "stream", "s", true, "Stream real-time logs from agents (default: on)")
+	runCmd.Flags().BoolVar(&noStream, "no-stream", false, "Disable real-time streaming")
 	runCmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 	runCmd.Flags().BoolVar(&compact, "compact", false, "Use compact output (no banner)")
 	runCmd.Flags().BoolVar(&parallel, "parallel", false, "Enable parallel execution (default: on)")
@@ -140,9 +142,8 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("verbose") {
 		cliSettings.Verbose = verbose
 	}
-	if cmd.Flags().Changed("stream") {
-		cliSettings.Stream = streamLogs
-	}
+	// Stream is on by default, --no-stream disables it
+	cliSettings.Stream = streamLogs && !noStream
 
 	// Merge configs: CLI > local > global
 	merged := config.MergeConfigs(globalCfg, localCfg, cliSettings)
