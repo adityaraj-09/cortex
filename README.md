@@ -15,12 +15,16 @@ Cortex is a powerful CLI tool that orchestrates AI agent workflows defined in YA
 
 ## Features
 
-- 🚀 **Parallel Execution** - Run independent tasks concurrently
-- 🔗 **Task Dependencies** - Chain tasks with `needs` and pass outputs via templates
-- 🤖 **Multi-Agent Support** - Use Claude Code, OpenCode, or other AI CLIs
-- 📊 **Session Tracking** - View and manage past run sessions
-- 🔔 **Webhooks** - Get notified on task completion/failure
-- ⚙️ **Global Config** - Set defaults in `~/.cortex/config.yml`
+- **Parallel Execution** - Run independent tasks concurrently
+- **Task Dependencies** - Chain tasks with `needs` and pass outputs via templates
+- **Multi-Agent Support** - Use Claude Code, OpenCode, or other AI CLIs
+- **Multi-Project Orchestration** - Run multiple Cortexfiles with MasterCortex.yml
+- **Working Directory** - Set `workdir` to run agents in specific folders
+- **Template Generator** - Quick start with `cortex init`
+- **Session Tracking** - View and manage past run sessions
+- **Webhooks** - Get notified on task completion/failure
+- **Global Config** - Set defaults in `~/.cortex/config.yml`
+- **Clean Output** - AI responses formatted without markdown/emojis
 
 ## Installation
 
@@ -65,7 +69,15 @@ Download the latest release for your platform from [GitHub Releases](https://git
 
 ### 1. Create a Cortexfile
 
-Create `Cortexfile.yml` in your project:
+```bash
+# Generate a template Cortexfile.yml
+cortex init
+
+# Or create a minimal template
+cortex init --minimal
+```
+
+Or create `Cortexfile.yml` manually:
 
 ```yaml
 agents:
@@ -121,9 +133,22 @@ cortex sessions
 
 | Command | Description |
 |---------|-------------|
+| `cortex init` | Create a template Cortexfile.yml |
 | `cortex run` | Execute the Cortexfile workflow |
+| `cortex master` | Run multiple workflows from MasterCortex.yml |
 | `cortex validate` | Validate configuration without running |
 | `cortex sessions` | List previous run sessions |
+
+### Init Options
+
+```bash
+cortex init [flags]
+
+Flags:
+      --minimal   Create a minimal template (quick start)
+      --master    Create a MasterCortex.yml instead
+      --force     Overwrite existing file
+```
 
 ### Run Options
 
@@ -131,14 +156,45 @@ cortex sessions
 cortex run [flags]
 
 Flags:
-  -f, --file string        Path to Cortexfile (default: auto-detect)
+  -f, --file stringArray   Path to Cortexfile(s) - supports multiple files and glob patterns
   -v, --verbose            Verbose output
-  -s, --stream             Stream real-time logs from agents
+  -s, --stream             Stream real-time logs (default: on)
+      --no-stream          Disable real-time streaming
+      --full               Show full output (default: summary only)
+  -i, --interactive        Enable Ctrl+O toggle for output (default: on)
       --parallel           Enable parallel execution (default: on)
       --sequential         Force sequential execution
       --max-parallel int   Max concurrent tasks (0 = CPU cores)
       --no-color           Disable colored output
       --compact            Minimal output (no banner)
+```
+
+**Examples:**
+```bash
+# Run single Cortexfile (auto-detect)
+cortex run
+
+# Run specific file
+cortex run -f ./path/to/Cortexfile.yml
+
+# Run multiple files
+cortex run -f project1/Cortexfile.yml -f project2/Cortexfile.yml
+
+# Run with glob pattern
+cortex run -f "projects/*/Cortexfile.yml"
+```
+
+### Master Options
+
+```bash
+cortex master [flags]
+
+Flags:
+  -f, --file string   Path to MasterCortex.yml (default: auto-detect)
+      --parallel      Force parallel execution
+      --sequential    Force sequential execution
+      --no-color      Disable colored output
+      --compact       Minimal output
 ```
 
 ### Sessions Options
@@ -157,6 +213,9 @@ Flags:
 ### Cortexfile.yml
 
 ```yaml
+# Optional: Working directory for all agents
+workdir: /path/to/project
+
 # Agents define the AI tools to use
 agents:
   my-agent:
@@ -179,6 +238,57 @@ tasks:
 settings:
   parallel: true
   max_parallel: 4
+```
+
+### MasterCortex.yml
+
+Orchestrate multiple Cortexfiles from a single configuration:
+
+```yaml
+# Name and description
+name: multi-project-workflow
+description: Run workflows across multiple projects
+
+# Execution mode: "sequential" or "parallel"
+mode: sequential
+
+# Max concurrent workflows (parallel mode only)
+max_parallel: 2
+
+# Stop on first error (default: true for sequential)
+stop_on_error: true
+
+# Define workflows to run
+workflows:
+  # Simple workflow
+  - name: main
+    path: ./Cortexfile.yml
+
+  # Workflow with custom working directory
+  - name: backend
+    path: ./backend/Cortexfile.yml
+    workdir: ./backend
+
+  # Workflow with dependencies
+  - name: frontend
+    path: ./frontend/Cortexfile.yml
+    needs: [backend]    # Runs after backend completes
+
+  # Glob patterns for multiple projects
+  - name: services
+    path: "./services/*/Cortexfile.yml"
+
+  # Disabled workflow (skipped)
+  - name: experimental
+    path: ./experimental/Cortexfile.yml
+    enabled: false
+```
+
+**Run with:**
+```bash
+cortex master                 # Auto-detect MasterCortex.yml
+cortex master -f custom.yml   # Specify file
+cortex master --parallel      # Force parallel mode
 ```
 
 ### Global Config (~/.cortex/config.yml)

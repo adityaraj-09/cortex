@@ -19,6 +19,8 @@ type Adapter struct {
 	executable string
 	// streamLogs enables real-time output streaming
 	streamLogs bool
+	// workdir specifies the working directory for execution
+	workdir string
 }
 
 // New creates a new OpenCode adapter.
@@ -43,11 +45,25 @@ func (a *Adapter) SetStreamLogs(enabled bool) {
 	a.streamLogs = enabled
 }
 
+// SetWorkdir sets the working directory for execution.
+func (a *Adapter) SetWorkdir(dir string) {
+	a.workdir = dir
+}
+
 // Run executes a task using the opencode CLI.
 func (a *Adapter) Run(ctx context.Context, task runtime.Task) (runtime.Result, error) {
 	args := a.buildArgs(task)
 
 	cmd := exec.CommandContext(ctx, a.executable, args...)
+
+	// Set working directory if specified
+	workdir := task.Workdir
+	if workdir == "" {
+		workdir = a.workdir
+	}
+	if workdir != "" {
+		cmd.Dir = workdir
+	}
 
 	var stdout, stderr bytes.Buffer
 	var stripper *ui.MarkdownStripWriter

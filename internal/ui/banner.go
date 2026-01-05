@@ -148,6 +148,15 @@ func PrintTaskRunning() {
 	fmt.Printf("%s│%s  %s● Running...%s\n", Orange, Reset, Orange, Reset)
 }
 
+// PrintTaskRunningWithHint prints running status with toggle hint
+func PrintTaskRunningWithHint(showHint bool) {
+	if showHint {
+		fmt.Printf("%s│%s  %s● Running...%s  %s[Ctrl+O to expand]%s\n", Orange, Reset, Orange, Reset, Dim, Reset)
+	} else {
+		fmt.Printf("%s│%s  %s● Running...%s\n", Orange, Reset, Orange, Reset)
+	}
+}
+
 // PrintSummary prints the final summary
 func PrintSummary(success bool, outputDir string) {
 	PrintDivider()

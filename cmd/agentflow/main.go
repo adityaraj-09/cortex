@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
+	"sync"
 	"syscall"
 	"time"
 
@@ -28,15 +30,18 @@ var (
 )
 
 var (
-	configFile  string
-	verbose     bool
-	streamLogs  bool
-	noStream    bool
-	noColor     bool
-	compact     bool
-	parallel    bool
-	sequential  bool
-	maxParallel int
+	configFile   string
+	configFiles  []string
+	verbose      bool
+	streamLogs   bool
+	noStream     bool
+	noColor      bool
+	compact      bool
+	parallel     bool
+	sequential   bool
+	maxParallel  int
+	fullOutput   bool
+	interactive  bool
 )
 
 func main() {
@@ -60,7 +65,7 @@ func main() {
 		RunE:  runWorkflow,
 	}
 
-	runCmd.Flags().StringVarP(&configFile, "file", "f", "", "Path to Cortexfile (default: auto-detect)")
+	runCmd.Flags().StringArrayVarP(&configFiles, "file", "f", nil, "Path to Cortexfile(s) - supports multiple files and glob patterns")
 	runCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	runCmd.Flags().BoolVarP(&streamLogs, "stream", "s", true, "Stream real-time logs from agents (default: on)")
 	runCmd.Flags().BoolVar(&noStream, "no-stream", false, "Disable real-time streaming")
@@ -69,6 +74,8 @@ func main() {
 	runCmd.Flags().BoolVar(&parallel, "parallel", false, "Enable parallel execution (default: on)")
 	runCmd.Flags().BoolVar(&sequential, "sequential", false, "Force sequential execution")
 	runCmd.Flags().IntVar(&maxParallel, "max-parallel", 0, "Max concurrent tasks (0 = use config default)")
+	runCmd.Flags().BoolVar(&fullOutput, "full", false, "Show full output (default: summary only)")
+	runCmd.Flags().BoolVarP(&interactive, "interactive", "i", true, "Enable interactive mode with Ctrl+O toggle")
 
 	// Validate command
 	validateCmd := &cobra.Command{
@@ -78,7 +85,8 @@ func main() {
 		RunE:  validateConfig,
 	}
 
-	validateCmd.Flags().StringVarP(&configFile, "file", "f", "", "Path to Cortexfile (default: auto-detect)")
+	var validateFile string
+	validateCmd.Flags().StringVarP(&validateFile, "file", "f", "", "Path to Cortexfile (default: auto-detect)")
 
 	// Sessions command
 	sessionsCmd := &cobra.Command{
@@ -96,9 +104,45 @@ func main() {
 	sessionsCmd.Flags().IntVar(&sessionLimit, "limit", 10, "Maximum number of sessions to show")
 	sessionsCmd.Flags().BoolVar(&sessionFailed, "failed", false, "Show only failed sessions")
 
+	// Init command - create template files
+	initCmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize a new Cortexfile in the current directory",
+		Long:  "Creates a template Cortexfile.yml that you can customize for your project",
+		RunE:  initCortexfile,
+	}
+
+	var initMinimal bool
+	var initMaster bool
+	var initForce bool
+
+	initCmd.Flags().BoolVar(&initMinimal, "minimal", false, "Create a minimal template")
+	initCmd.Flags().BoolVar(&initMaster, "master", false, "Create a MasterCortex.yml instead")
+	initCmd.Flags().BoolVar(&initForce, "force", false, "Overwrite existing file")
+
+	// Master command - run MasterCortex.yml
+	masterCmd := &cobra.Command{
+		Use:   "master",
+		Short: "Run workflows defined in MasterCortex.yml",
+		Long:  "Executes multiple Cortexfiles as defined in MasterCortex.yml",
+		RunE:  runMasterWorkflow,
+	}
+
+	var masterFile string
+	var masterParallel bool
+	var masterSequential bool
+
+	masterCmd.Flags().StringVarP(&masterFile, "file", "f", "", "Path to MasterCortex.yml (default: auto-detect)")
+	masterCmd.Flags().BoolVar(&masterParallel, "parallel", false, "Force parallel execution")
+	masterCmd.Flags().BoolVar(&masterSequential, "sequential", false, "Force sequential execution")
+	masterCmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
+	masterCmd.Flags().BoolVar(&compact, "compact", false, "Use compact output")
+
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(sessionsCmd)
+	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(masterCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -118,6 +162,62 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 		ui.PrintBanner(version)
 	}
 
+	// Resolve config files (supports multiple files and globs)
+	configPaths, err := resolveConfigFiles()
+	if err != nil {
+		ui.Error("Failed to resolve config files: %s", err)
+		return err
+	}
+
+	if len(configPaths) == 0 {
+		ui.Error("No Cortexfile found")
+		return fmt.Errorf("no Cortexfile found")
+	}
+
+	// Run each config file
+	var allSuccess = true
+	var totalTasks int
+	var successfulRuns int
+
+	for i, configPath := range configPaths {
+		if len(configPaths) > 1 {
+			ui.PrintDivider()
+			fmt.Printf("\n%s[%d/%d]%s Running: %s%s%s\n\n",
+				ui.Dim, i+1, len(configPaths), ui.Reset,
+				ui.Bold, configPath, ui.Reset)
+		}
+
+		success, tasks, err := runSingleConfig(cmd, configPath)
+		if err != nil {
+			ui.Error("Config %s failed: %s", configPath, err)
+			allSuccess = false
+		} else if success {
+			successfulRuns++
+		} else {
+			allSuccess = false
+		}
+		totalTasks += tasks
+	}
+
+	// Print aggregate summary for multiple configs
+	if len(configPaths) > 1 {
+		ui.PrintDivider()
+		if allSuccess {
+			fmt.Printf("\n  %s%s All %d configs completed successfully (%d tasks)%s\n\n",
+				ui.Bold, ui.Green, len(configPaths), totalTasks, ui.Reset)
+		} else {
+			fmt.Printf("\n  %s%s %d/%d configs completed (%d tasks)%s\n\n",
+				ui.Bold, ui.Red, successfulRuns, len(configPaths), totalTasks, ui.Reset)
+		}
+	}
+
+	if !allSuccess {
+		return fmt.Errorf("workflow completed with failures")
+	}
+	return nil
+}
+
+func runSingleConfig(cmd *cobra.Command, configPath string) (bool, int, error) {
 	// Load global config
 	globalCfg, err := config.LoadGlobalConfig()
 	if err != nil {
@@ -127,11 +227,16 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Find and load local config
-	localCfg, configPath, err := loadConfig()
+	// Load local config from specified path
+	ui.Info("Loading %s", configPath)
+	localCfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		ui.Error("Failed to load config: %s", err)
-		return err
+		return false, 0, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	ui.Info("Validating configuration...")
+	if err := config.ValidateWithFile(localCfg, configPath); err != nil {
+		return false, 0, err
 	}
 
 	// Build CLI settings override
@@ -163,7 +268,7 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	plan, err := planner.BuildPlan(localCfg)
 	if err != nil {
 		ui.Error("Failed to build plan: %s", err)
-		return err
+		return false, 0, err
 	}
 
 	// Show execution mode
@@ -198,13 +303,13 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		ui.Error("Failed to get working directory: %s", err)
-		return err
+		return false, 0, err
 	}
 
 	store, err := state.NewStore(cwd)
 	if err != nil {
 		ui.Error("Failed to create state store: %s", err)
-		return err
+		return false, 0, err
 	}
 
 	// Print session info
@@ -275,18 +380,13 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 
 	if err != nil {
 		ui.PrintSummary(false, store.RunDir())
-		return err
+		return false, len(result.Tasks), err
 	}
 
 	// Print summary
 	ui.PrintSummary(result.Success, store.RunDir())
 
-	if !result.Success {
-		return fmt.Errorf("workflow completed with failures")
-	}
-
-	_ = configPath // Used for future error reporting
-	return nil
+	return result.Success, len(result.Tasks), nil
 }
 
 func validateConfig(cmd *cobra.Command, args []string) error {
@@ -400,22 +500,17 @@ func listSessions(cmd *cobra.Command, args []string) error {
 }
 
 func loadConfig() (*config.AgentflowConfig, string, error) {
-	var path string
-	var err error
-
-	if configFile != "" {
-		path = configFile
-	} else {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return nil, "", fmt.Errorf("failed to get working directory: %w", err)
-		}
-
-		path, err = config.FindCortexfile(cwd)
-		if err != nil {
-			return nil, "", err
-		}
+	paths, err := resolveConfigFiles()
+	if err != nil {
+		return nil, "", err
 	}
+
+	if len(paths) == 0 {
+		return nil, "", fmt.Errorf("no Cortexfile found")
+	}
+
+	// For now, use the first file (multiple files will be handled separately)
+	path := paths[0]
 
 	ui.Info("Loading %s", path)
 
@@ -430,4 +525,393 @@ func loadConfig() (*config.AgentflowConfig, string, error) {
 	}
 
 	return cfg, path, nil
+}
+
+// resolveConfigFiles expands glob patterns and returns all matching config files
+func resolveConfigFiles() ([]string, error) {
+	if len(configFiles) == 0 {
+		// Auto-detect in current directory
+		cwd, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get working directory: %w", err)
+		}
+
+		path, err := config.FindCortexfile(cwd)
+		if err != nil {
+			return nil, err
+		}
+		return []string{path}, nil
+	}
+
+	var result []string
+	seen := make(map[string]bool)
+
+	for _, pattern := range configFiles {
+		// Check if it's a glob pattern
+		if containsGlobChars(pattern) {
+			matches, err := filepath.Glob(pattern)
+			if err != nil {
+				return nil, fmt.Errorf("invalid glob pattern %q: %w", pattern, err)
+			}
+			for _, m := range matches {
+				abs, _ := filepath.Abs(m)
+				if !seen[abs] {
+					seen[abs] = true
+					result = append(result, abs)
+				}
+			}
+		} else {
+			// Regular file path
+			abs, _ := filepath.Abs(pattern)
+			if !seen[abs] {
+				seen[abs] = true
+				result = append(result, abs)
+			}
+		}
+	}
+
+	// Sort for consistent ordering
+	sort.Strings(result)
+	return result, nil
+}
+
+// containsGlobChars checks if a string contains glob pattern characters
+func containsGlobChars(s string) bool {
+	for _, c := range s {
+		if c == '*' || c == '?' || c == '[' {
+			return true
+		}
+	}
+	return false
+}
+
+// initCortexfile creates a template Cortexfile or MasterCortex file
+func initCortexfile(cmd *cobra.Command, args []string) error {
+	minimal, _ := cmd.Flags().GetBool("minimal")
+	master, _ := cmd.Flags().GetBool("master")
+	force, _ := cmd.Flags().GetBool("force")
+
+	var filename string
+	var content string
+
+	if master {
+		filename = "MasterCortex.yml"
+		content = config.MasterCortexTemplate
+	} else if minimal {
+		filename = "Cortexfile.yml"
+		content = config.MinimalCortexfileTemplate
+	} else {
+		filename = "Cortexfile.yml"
+		content = config.CortexfileTemplate
+	}
+
+	// Check if file already exists
+	if _, err := os.Stat(filename); err == nil && !force {
+		ui.Error("%s already exists. Use --force to overwrite.", filename)
+		return fmt.Errorf("file exists")
+	}
+
+	// Write the file
+	if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
+		ui.Error("Failed to create %s: %s", filename, err)
+		return err
+	}
+
+	ui.Success("Created %s", filename)
+	fmt.Printf("\n  %sNext steps:%s\n", ui.Bold, ui.Reset)
+	fmt.Printf("  1. Edit %s to define your workflow\n", filename)
+	if master {
+		fmt.Printf("  2. Run %scortex master%s to execute\n", ui.Bold, ui.Reset)
+	} else {
+		fmt.Printf("  2. Run %scortex validate%s to check your config\n", ui.Bold, ui.Reset)
+		fmt.Printf("  3. Run %scortex run%s to execute\n", ui.Bold, ui.Reset)
+	}
+	fmt.Println()
+
+	return nil
+}
+
+// runMasterWorkflow executes workflows defined in MasterCortex.yml
+func runMasterWorkflow(cmd *cobra.Command, args []string) error {
+	// Handle color settings
+	if noColor {
+		ui.SetColorsEnabled(false)
+	}
+
+	// Print banner
+	if compact {
+		ui.PrintCompactBanner(version)
+	} else {
+		ui.PrintBanner(version)
+	}
+
+	// Find MasterCortex file
+	masterFile, _ := cmd.Flags().GetString("file")
+	var masterPath string
+	var err error
+
+	if masterFile != "" {
+		masterPath = masterFile
+	} else {
+		cwd, err := os.Getwd()
+		if err != nil {
+			ui.Error("Failed to get working directory: %s", err)
+			return err
+		}
+		masterPath, err = config.FindMasterCortex(cwd)
+		if err != nil {
+			ui.Error("No MasterCortex.yml found. Create one with: cortex init --master")
+			return err
+		}
+	}
+
+	ui.Info("Loading %s", masterPath)
+
+	// Load master config
+	masterCfg, err := config.LoadMasterConfig(masterPath)
+	if err != nil {
+		ui.Error("Failed to load master config: %s", err)
+		return err
+	}
+
+	// Validate
+	if err := config.ValidateMasterConfig(masterCfg); err != nil {
+		ui.Error("Invalid master config: %s", err)
+		return err
+	}
+
+	// Resolve workflow paths
+	baseDir := filepath.Dir(masterPath)
+	workflows, err := config.ResolveWorkflowPaths(masterCfg, baseDir)
+	if err != nil {
+		ui.Error("Failed to resolve workflow paths: %s", err)
+		return err
+	}
+
+	if len(workflows) == 0 {
+		ui.Warning("No enabled workflows found")
+		return nil
+	}
+
+	// Override mode from CLI flags
+	forceParallel, _ := cmd.Flags().GetBool("parallel")
+	forceSequential, _ := cmd.Flags().GetBool("sequential")
+
+	mode := masterCfg.Mode
+	if forceParallel {
+		mode = "parallel"
+	} else if forceSequential {
+		mode = "sequential"
+	}
+
+	// Print execution info
+	if masterCfg.Name != "" {
+		fmt.Printf("  %s%s%s\n", ui.Bold+ui.Orange, masterCfg.Name, ui.Reset)
+	}
+	if masterCfg.Description != "" {
+		fmt.Printf("  %s%s%s\n", ui.Dim, masterCfg.Description, ui.Reset)
+	}
+	ui.Info("Mode: %s, Workflows: %d", mode, len(workflows))
+	fmt.Println()
+
+	// Print workflow list
+	fmt.Printf("  %s%sWorkflows%s\n", ui.Bold, ui.Orange, ui.Reset)
+	fmt.Printf("  %s─────────%s\n", ui.Dim, ui.Reset)
+	for i, w := range workflows {
+		deps := ""
+		if len(w.Needs) > 0 {
+			deps = fmt.Sprintf(" %s← %v%s", ui.Dim, w.Needs, ui.Reset)
+		}
+		fmt.Printf("  %s%d.%s %s%s%s%s\n", ui.Orange, i+1, ui.Reset, ui.Bold, w.Name, ui.Reset, deps)
+		fmt.Printf("     %s%s%s\n", ui.Dim, w.Path, ui.Reset)
+	}
+	fmt.Println()
+
+	// Execute workflows
+	startTime := time.Now()
+	var results []workflowResult
+
+	if mode == "parallel" {
+		results = executeWorkflowsParallel(cmd, workflows, masterCfg)
+	} else {
+		results = executeWorkflowsSequential(cmd, workflows, masterCfg)
+	}
+
+	duration := time.Since(startTime)
+
+	// Print summary
+	ui.PrintDivider()
+
+	successCount := 0
+	totalTasks := 0
+	for _, r := range results {
+		if r.Success {
+			successCount++
+		}
+		totalTasks += r.Tasks
+	}
+
+	if successCount == len(results) {
+		fmt.Printf("\n  %s%s All %d workflows completed successfully%s\n", ui.Bold, ui.Green, len(results), ui.Reset)
+	} else {
+		fmt.Printf("\n  %s%s %d/%d workflows completed%s\n", ui.Bold, ui.Red, successCount, len(results), ui.Reset)
+	}
+	fmt.Printf("  %sTotal tasks: %d, Duration: %s%s\n\n", ui.Dim, totalTasks, duration.Round(time.Second), ui.Reset)
+
+	if successCount < len(results) {
+		return fmt.Errorf("master workflow completed with failures")
+	}
+	return nil
+}
+
+type workflowResult struct {
+	Name    string
+	Success bool
+	Tasks   int
+	Error   error
+}
+
+func executeWorkflowsSequential(cmd *cobra.Command, workflows []config.WorkflowEntry, masterCfg *config.MasterConfig) []workflowResult {
+	results := make([]workflowResult, 0, len(workflows))
+	completed := make(map[string]bool)
+
+	for _, w := range workflows {
+		// Check dependencies
+		canRun := true
+		for _, dep := range w.Needs {
+			if !completed[dep] {
+				canRun = false
+				break
+			}
+		}
+
+		if !canRun {
+			ui.Warning("Skipping %s: dependencies not met", w.Name)
+			results = append(results, workflowResult{Name: w.Name, Success: false, Error: fmt.Errorf("dependencies not met")})
+			continue
+		}
+
+		ui.PrintDivider()
+		fmt.Printf("\n%s[%d/%d]%s %s%s%s\n\n",
+			ui.Dim, len(results)+1, len(workflows), ui.Reset,
+			ui.Bold+ui.Orange, w.Name, ui.Reset)
+
+		// Set configFiles for this workflow
+		configFiles = []string{w.Path}
+
+		success, tasks, err := runSingleConfig(cmd, w.Path)
+		results = append(results, workflowResult{
+			Name:    w.Name,
+			Success: success,
+			Tasks:   tasks,
+			Error:   err,
+		})
+
+		if success {
+			completed[w.Name] = true
+		} else if masterCfg.StopOnError != nil && *masterCfg.StopOnError {
+			ui.Error("Stopping due to error in %s", w.Name)
+			break
+		}
+	}
+
+	return results
+}
+
+func executeWorkflowsParallel(cmd *cobra.Command, workflows []config.WorkflowEntry, masterCfg *config.MasterConfig) []workflowResult {
+	// For parallel execution with dependencies, we need to build execution levels
+	// similar to task execution. For simplicity, we'll run all without deps first,
+	// then those with deps.
+
+	results := make([]workflowResult, len(workflows))
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	completed := make(map[string]bool)
+
+	// First pass: run workflows without dependencies
+	sem := make(chan struct{}, maxOrDefault(masterCfg.MaxParallel, len(workflows)))
+
+	for i, w := range workflows {
+		if len(w.Needs) > 0 {
+			continue // Skip workflows with dependencies for now
+		}
+
+		wg.Add(1)
+		go func(idx int, workflow config.WorkflowEntry) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			fmt.Printf("\n%s[%s]%s Starting...\n", ui.Orange, workflow.Name, ui.Reset)
+
+			success, tasks, err := runSingleConfig(cmd, workflow.Path)
+
+			mu.Lock()
+			results[idx] = workflowResult{
+				Name:    workflow.Name,
+				Success: success,
+				Tasks:   tasks,
+				Error:   err,
+			}
+			if success {
+				completed[workflow.Name] = true
+			}
+			mu.Unlock()
+
+			if success {
+				fmt.Printf("%s[%s]%s %sCompleted%s\n", ui.Orange, workflow.Name, ui.Reset, ui.Green, ui.Reset)
+			} else {
+				fmt.Printf("%s[%s]%s %sFailed%s\n", ui.Orange, workflow.Name, ui.Reset, ui.Red, ui.Reset)
+			}
+		}(i, w)
+	}
+
+	wg.Wait()
+
+	// Second pass: run workflows with dependencies (sequentially for simplicity)
+	for i, w := range workflows {
+		if len(w.Needs) == 0 {
+			continue // Already ran
+		}
+
+		// Check dependencies
+		canRun := true
+		for _, dep := range w.Needs {
+			if !completed[dep] {
+				canRun = false
+				break
+			}
+		}
+
+		if !canRun {
+			results[i] = workflowResult{Name: w.Name, Success: false, Error: fmt.Errorf("dependencies not met")}
+			continue
+		}
+
+		fmt.Printf("\n%s[%s]%s Starting (deps: %v)...\n", ui.Orange, w.Name, ui.Reset, w.Needs)
+
+		success, tasks, err := runSingleConfig(cmd, w.Path)
+		results[i] = workflowResult{
+			Name:    w.Name,
+			Success: success,
+			Tasks:   tasks,
+			Error:   err,
+		}
+
+		if success {
+			completed[w.Name] = true
+			fmt.Printf("%s[%s]%s %sCompleted%s\n", ui.Orange, w.Name, ui.Reset, ui.Green, ui.Reset)
+		} else {
+			fmt.Printf("%s[%s]%s %sFailed%s\n", ui.Orange, w.Name, ui.Reset, ui.Red, ui.Reset)
+		}
+	}
+
+	return results
+}
+
+func maxOrDefault(val, def int) int {
+	if val > 0 {
+		return val
+	}
+	return def
 }

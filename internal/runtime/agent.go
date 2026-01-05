@@ -7,12 +7,13 @@ import (
 
 // Task represents a task to be executed by an agent.
 type Task struct {
-	Name   string // Task name
-	Agent  string // Agent name
-	Tool   string // CLI tool (claude-code, opencode)
-	Model  string // Model identifier
-	Prompt string // Prompt text (already expanded with template variables)
-	Write  bool   // Allow file writes
+	Name    string // Task name
+	Agent   string // Agent name
+	Tool    string // CLI tool (claude-code, opencode)
+	Model   string // Model identifier
+	Prompt  string // Prompt text (already expanded with template variables)
+	Write   bool   // Allow file writes
+	Workdir string // Working directory for the agent (optional)
 }
 
 // Result represents the result of executing a task.

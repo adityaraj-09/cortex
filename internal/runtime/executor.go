@@ -221,12 +221,13 @@ func (e *Executor) executeTask(ctx context.Context, execTask planner.ExecutionTa
 
 	// Create task for execution
 	task := Task{
-		Name:   execTask.Name,
-		Agent:  execTask.AgentName,
-		Tool:   execTask.Tool,
-		Model:  execTask.Model,
-		Prompt: expandedPrompt,
-		Write:  execTask.Write,
+		Name:    execTask.Name,
+		Agent:   execTask.AgentName,
+		Tool:    execTask.Tool,
+		Model:   execTask.Model,
+		Prompt:  expandedPrompt,
+		Write:   execTask.Write,
+		Workdir: execTask.Workdir,
 	}
 
 	// Create result tracker

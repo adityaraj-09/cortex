@@ -13,12 +13,24 @@ import (
 	"github.com/adityaraj/agentflow/internal/ui"
 )
 
+// defaultSystemPrompt provides formatting instructions for clean, readable output.
+const defaultSystemPrompt = `Output formatting rules:
+1. Use clear numbered points or bullet points
+2. No emojis or decorative characters
+3. Be concise and direct
+4. Structure: Brief summary first, then details if needed
+5. Keep responses focused and actionable`
+
 // Adapter implements the Agent interface for claude-code CLI.
 type Adapter struct {
 	// executable is the name or path of the claude CLI binary
 	executable string
 	// streamLogs enables real-time output streaming
 	streamLogs bool
+	// systemPrompt overrides the default system prompt
+	systemPrompt string
+	// workdir specifies the working directory for Claude
+	workdir string
 }
 
 // New creates a new Claude adapter.
@@ -49,6 +61,16 @@ func NewWithOptions(executable string, streamLogs bool) *Adapter {
 // SetStreamLogs enables or disables real-time log streaming.
 func (a *Adapter) SetStreamLogs(enabled bool) {
 	a.streamLogs = enabled
+}
+
+// SetSystemPrompt sets a custom system prompt (empty uses default).
+func (a *Adapter) SetSystemPrompt(prompt string) {
+	a.systemPrompt = prompt
+}
+
+// SetWorkdir sets the working directory for Claude execution.
+func (a *Adapter) SetWorkdir(dir string) {
+	a.workdir = dir
 }
 
 // Run executes a task using the claude-code CLI.
@@ -109,8 +131,24 @@ func (a *Adapter) Run(ctx context.Context, task runtime.Task) (runtime.Result, e
 // buildArgs constructs the command-line arguments for claude.
 func (a *Adapter) buildArgs(task runtime.Task) []string {
 	args := []string{
-		"-p",                  // Print mode (non-interactive)
+		"-p",                      // Print mode (non-interactive)
 		"--output-format", "text", // Plain text output
+	}
+
+	// Add system prompt (use default if not overridden)
+	systemPrompt := a.systemPrompt
+	if systemPrompt == "" {
+		systemPrompt = defaultSystemPrompt
+	}
+	args = append(args, "--system-prompt", systemPrompt)
+
+	// Add working directory if specified (from task or adapter)
+	workdir := task.Workdir
+	if workdir == "" {
+		workdir = a.workdir
+	}
+	if workdir != "" {
+		args = append(args, "--cwd", workdir)
 	}
 
 	// Add model if specified

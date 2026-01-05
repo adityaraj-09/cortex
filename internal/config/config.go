@@ -10,6 +10,7 @@ type AgentflowConfig struct {
 	Agents   map[string]AgentConfig `yaml:"agents"`
 	Tasks    map[string]TaskConfig  `yaml:"tasks"`
 	Settings *SettingsConfig        `yaml:"settings"` // Optional local settings
+	Workdir  string                 `yaml:"workdir"`  // Working directory for agents (optional)
 }
 
 // AgentConfig defines an AI agent's configuration.

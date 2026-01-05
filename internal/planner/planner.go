@@ -15,6 +15,7 @@ type ExecutionTask struct {
 	Prompt       string   // Prompt text (resolved from prompt_file if needed)
 	Write        bool     // Allow file writes
 	Dependencies []string // Names of tasks this depends on
+	Workdir      string   // Working directory for agent execution
 }
 
 // ExecutionPlan represents an ordered list of tasks to execute.
@@ -49,6 +50,7 @@ func BuildPlan(cfg *config.AgentflowConfig) (*ExecutionPlan, error) {
 			Prompt:       taskCfg.Prompt,
 			Write:        taskCfg.Write,
 			Dependencies: taskCfg.Needs,
+			Workdir:      cfg.Workdir,
 		})
 	}
 
