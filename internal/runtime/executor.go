@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/adityaraj/agentflow/internal/config"
@@ -84,7 +85,7 @@ func (e *Executor) executeSequential(ctx context.Context, plan *planner.Executio
 	for i, execTask := range plan.Tasks {
 		// Print task start with colors
 		ui.PrintTaskStart(i+1, totalTasks, execTask.Name, execTask.AgentName, execTask.Tool, execTask.Model)
-		ui.PrintTaskRunning()
+		ui.PrintTaskRunningWithProgress(i+1, totalTasks, true) // Show Ctrl+O hint with progress bar
 
 		taskResult, err := e.executeTask(ctx, execTask)
 		if err != nil {
@@ -123,7 +124,7 @@ func (e *Executor) executeParallel(ctx context.Context, plan *planner.ExecutionP
 	// Build execution levels
 	levels := planner.BuildExecutionLevels(plan.DAG)
 	totalTasks := len(plan.Tasks)
-	completedTasks := 0
+	var completedTasks atomic.Int32
 
 	var resultsMu sync.Mutex
 
@@ -158,13 +159,17 @@ func (e *Executor) executeParallel(ctx context.Context, plan *planner.ExecutionP
 					return
 				}
 
-				completedTasks++
+				// Get current task number for display (increment happens after execution)
+				taskNum := int(completedTasks.Load()) + 1
 				// Print task start
-				ui.PrintTaskStart(completedTasks, totalTasks, task.Name, task.AgentName, task.Tool, task.Model)
-				ui.PrintTaskRunning()
+				ui.PrintTaskStart(taskNum, totalTasks, task.Name, task.AgentName, task.Tool, task.Model)
+				ui.PrintTaskRunningWithProgress(taskNum, totalTasks, true) // Show Ctrl+O hint with progress
 
 				// Execute the task
 				taskResult, err := e.executeTask(ctx, task)
+
+				// Increment completed count AFTER task execution
+				completedTasks.Add(1)
 
 				resultsMu.Lock()
 				runResult.Tasks = append(runResult.Tasks, *taskResult)
@@ -254,6 +259,11 @@ func (e *Executor) executeTask(ctx context.Context, execTask planner.ExecutionTa
 	// Complete the task result
 	taskResult.Complete(result.Stdout, result.Stderr, result.ExitCode, result.Success)
 
+	// Set token usage if available
+	if result.InputTokens > 0 || result.OutputTokens > 0 {
+		taskResult.SetTokenUsage(result.InputTokens, result.OutputTokens, result.CacheRead, result.CacheWrite)
+	}
+
 	// Save task result
 	if err := e.store.SaveTaskResult(taskResult); err != nil {
 		ui.Warning("Failed to save result: %s", err)
@@ -265,9 +275,17 @@ func (e *Executor) executeTask(ctx context.Context, execTask planner.ExecutionTa
 	e.outputsMu.Unlock()
 
 	if result.Success {
-		ui.PrintTaskStatus("Success", true, taskResult.Duration)
+		if result.InputTokens > 0 || result.OutputTokens > 0 {
+			ui.PrintTaskStatusWithTokens("Success", true, taskResult.Duration, result.InputTokens, result.OutputTokens)
+		} else {
+			ui.PrintTaskStatus("Success", true, taskResult.Duration)
+		}
 	} else {
-		ui.PrintTaskStatus("Failed", false, taskResult.Duration)
+		if result.InputTokens > 0 || result.OutputTokens > 0 {
+			ui.PrintTaskStatusWithTokens("Failed", false, taskResult.Duration, result.InputTokens, result.OutputTokens)
+		} else {
+			ui.PrintTaskStatus("Failed", false, taskResult.Duration)
+		}
 		return taskResult, fmt.Errorf("task %q failed with exit code %d", execTask.Name, result.ExitCode)
 	}
 

@@ -18,10 +18,14 @@ type Task struct {
 
 // Result represents the result of executing a task.
 type Result struct {
-	Stdout   string // Standard output from the agent
-	Stderr   string // Standard error from the agent
-	ExitCode int    // Exit code (0 = success)
-	Success  bool   // Whether the task succeeded
+	Stdout       string // Standard output from the agent
+	Stderr       string // Standard error from the agent
+	ExitCode     int    // Exit code (0 = success)
+	Success      bool   // Whether the task succeeded
+	InputTokens  int    // Input tokens used (for AI agents)
+	OutputTokens int    // Output tokens used (for AI agents)
+	CacheRead    int    // Cache read tokens (for AI agents)
+	CacheWrite   int    // Cache write tokens (for AI agents)
 }
 
 // Agent is the interface that all agent adapters must implement.

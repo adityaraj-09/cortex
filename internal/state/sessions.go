@@ -11,14 +11,15 @@ import (
 
 // SessionInfo contains summary information about a session.
 type SessionInfo struct {
-	RunID     string        `json:"run_id"`
-	Project   string        `json:"project"`
-	StartTime time.Time     `json:"start_time"`
-	EndTime   time.Time     `json:"end_time"`
-	Success   bool          `json:"success"`
-	TaskCount int           `json:"task_count"`
-	Duration  time.Duration `json:"duration"`
-	RunDir    string        `json:"run_dir"`
+	RunID       string        `json:"run_id"`
+	Project     string        `json:"project"`
+	StartTime   time.Time     `json:"start_time"`
+	EndTime     time.Time     `json:"end_time"`
+	Success     bool          `json:"success"`
+	TaskCount   int           `json:"task_count"`
+	Duration    time.Duration `json:"duration"`
+	RunDir      string        `json:"run_dir"`
+	TotalTokens int           `json:"total_tokens,omitempty"` // Total tokens used in session
 }
 
 // SessionFilter contains filter options for listing sessions.
@@ -163,15 +164,22 @@ func loadSessionInfo(runDir, runID, project string) (SessionInfo, error) {
 		}, nil
 	}
 
+	// Calculate total tokens
+	totalTokens := 0
+	for _, task := range runResult.Tasks {
+		totalTokens += task.TokenUsage.TotalTokens
+	}
+
 	return SessionInfo{
-		RunID:     runResult.RunID,
-		Project:   project,
-		StartTime: runResult.StartTime,
-		EndTime:   runResult.EndTime,
-		Success:   runResult.Success,
-		TaskCount: len(runResult.Tasks),
-		Duration:  runResult.EndTime.Sub(runResult.StartTime),
-		RunDir:    runDir,
+		RunID:       runResult.RunID,
+		Project:     project,
+		StartTime:   runResult.StartTime,
+		EndTime:     runResult.EndTime,
+		Success:     runResult.Success,
+		TaskCount:   len(runResult.Tasks),
+		Duration:    runResult.EndTime.Sub(runResult.StartTime),
+		RunDir:      runDir,
+		TotalTokens: totalTokens,
 	}, nil
 }
 
@@ -201,6 +209,79 @@ func GetSessionFromPath(baseDir, project, runID string) (*RunResult, error) {
 	}
 
 	return &result, nil
+}
+
+// ProjectSummary contains summary info about a project's sessions.
+type ProjectSummary struct {
+	Name         string    // Project name
+	SessionCount int       // Number of sessions
+	LatestTime   time.Time // Most recent session time
+}
+
+// ListProjectSummaries lists all projects with session summaries, sorted by latest time.
+func ListProjectSummaries(limit int) ([]ProjectSummary, error) {
+	baseDir, err := getCortexDir()
+	if err != nil {
+		return nil, err
+	}
+
+	return ListProjectSummariesFromPath(baseDir, limit)
+}
+
+// ListProjectSummariesFromPath lists project summaries from a custom base path.
+func ListProjectSummariesFromPath(baseDir string, limit int) ([]ProjectSummary, error) {
+	sessionsDir := filepath.Join(baseDir, "sessions")
+
+	if _, err := os.Stat(sessionsDir); os.IsNotExist(err) {
+		return []ProjectSummary{}, nil
+	}
+
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var summaries []ProjectSummary
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		projectName := entry.Name()
+		projectDir := filepath.Join(sessionsDir, projectName)
+
+		sessions, err := listProjectSessions(projectDir, projectName)
+		if err != nil || len(sessions) == 0 {
+			continue
+		}
+
+		// Find latest session time
+		var latestTime time.Time
+		for _, s := range sessions {
+			if s.StartTime.After(latestTime) {
+				latestTime = s.StartTime
+			}
+		}
+
+		summaries = append(summaries, ProjectSummary{
+			Name:         projectName,
+			SessionCount: len(sessions),
+			LatestTime:   latestTime,
+		})
+	}
+
+	// Sort by latest time (newest first)
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].LatestTime.After(summaries[j].LatestTime)
+	})
+
+	// Apply limit
+	if limit > 0 && len(summaries) > limit {
+		summaries = summaries[:limit]
+	}
+
+	return summaries, nil
 }
 
 // ListProjects lists all projects with sessions.

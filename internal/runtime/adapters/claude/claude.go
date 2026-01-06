@@ -98,17 +98,21 @@ func (a *Adapter) Run(ctx context.Context, task runtime.Task) (runtime.Result, e
 		ui.PrintStreamStart()
 
 		// Parse NDJSON and stream text content in real-time
-		output := a.parseAndStreamNDJSON(stdout, os.Stdout)
+		parsed := a.parseAndStreamNDJSON(stdout, os.Stdout)
 
 		ui.PrintStreamEnd()
 
 		err = cmd.Wait()
 
 		result := runtime.Result{
-			Stdout:   ui.StripMarkdown(output),
-			Stderr:   stderr.String(),
-			ExitCode: 0,
-			Success:  true,
+			Stdout:       ui.StripMarkdown(parsed.Output),
+			Stderr:       stderr.String(),
+			ExitCode:     0,
+			Success:      true,
+			InputTokens:  parsed.InputTokens,
+			OutputTokens: parsed.OutputTokens,
+			CacheRead:    parsed.CacheRead,
+			CacheWrite:   parsed.CacheWrite,
 		}
 
 		if err != nil {
@@ -226,7 +230,18 @@ type streamMessage struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
+		Usage *usageInfo `json:"usage"`
 	} `json:"message"`
+	// Usage info at result level
+	Usage *usageInfo `json:"usage"`
+}
+
+// usageInfo represents token usage information from Claude
+type usageInfo struct {
+	InputTokens       int `json:"input_tokens"`
+	OutputTokens      int `json:"output_tokens"`
+	CacheReadTokens   int `json:"cache_read_input_tokens"`
+	CacheCreationTokens int `json:"cache_creation_input_tokens"`
 }
 
 // toolInput represents common tool input parameters
@@ -243,14 +258,24 @@ type toolInput struct {
 	NewString   string `json:"new_string"`
 }
 
+// parseResult holds the parsed output and token usage from streaming
+type parseResult struct {
+	Output       string
+	InputTokens  int
+	OutputTokens int
+	CacheRead    int
+	CacheWrite   int
+}
+
 // parseAndStreamNDJSON reads NDJSON from reader, streams text content to writer,
-// and returns the full accumulated output.
-func (a *Adapter) parseAndStreamNDJSON(r io.Reader, w io.Writer) string {
+// and returns the full accumulated output with token usage.
+func (a *Adapter) parseAndStreamNDJSON(r io.Reader, w io.Writer) parseResult {
 	scanner := bufio.NewScanner(r)
 	// Increase scanner buffer for large JSON lines
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
+	var result parseResult
 	var fullOutput strings.Builder
 	var currentTool string
 	var toolInputJSON strings.Builder
@@ -268,6 +293,20 @@ func (a *Adapter) parseAndStreamNDJSON(r io.Reader, w io.Writer) string {
 			_, _ = w.Write([]byte(line + "\n"))
 			fullOutput.WriteString(line + "\n")
 			continue
+		}
+
+		// Capture usage info from result or message
+		if msg.Usage != nil {
+			result.InputTokens += msg.Usage.InputTokens
+			result.OutputTokens += msg.Usage.OutputTokens
+			result.CacheRead += msg.Usage.CacheReadTokens
+			result.CacheWrite += msg.Usage.CacheCreationTokens
+		}
+		if msg.Message != nil && msg.Message.Usage != nil {
+			result.InputTokens += msg.Message.Usage.InputTokens
+			result.OutputTokens += msg.Message.Usage.OutputTokens
+			result.CacheRead += msg.Message.Usage.CacheReadTokens
+			result.CacheWrite += msg.Message.Usage.CacheCreationTokens
 		}
 
 		// Handle stream_event messages
@@ -332,7 +371,8 @@ func (a *Adapter) parseAndStreamNDJSON(r io.Reader, w io.Writer) string {
 		}
 	}
 
-	return fullOutput.String()
+	result.Output = fullOutput.String()
+	return result
 }
 
 // extractToolInfo extracts display info from tool input JSON

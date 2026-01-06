@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/adityaraj/agentflow/internal/config"
+	"github.com/adityaraj/agentflow/internal/observability"
 	"github.com/adityaraj/agentflow/internal/planner"
 	"github.com/adityaraj/agentflow/internal/runtime"
 	"github.com/adityaraj/agentflow/internal/runtime/adapters/claude"
@@ -42,6 +45,9 @@ var (
 	maxParallel int
 	fullOutput  bool
 	interactive bool
+	logFormat   string
+	logLevel    string
+	logFile     string
 )
 
 func main() {
@@ -76,6 +82,9 @@ func main() {
 	runCmd.Flags().IntVar(&maxParallel, "max-parallel", 0, "Max concurrent tasks (0 = use config default)")
 	runCmd.Flags().BoolVar(&fullOutput, "full", false, "Show full output (default: summary only)")
 	runCmd.Flags().BoolVarP(&interactive, "interactive", "i", true, "Enable interactive mode with Ctrl+O toggle")
+	runCmd.Flags().StringVar(&logFormat, "log-format", "text", "Log format: text or json")
+	runCmd.Flags().StringVar(&logLevel, "log-level", "info", "Log level: debug, info, warn, error")
+	runCmd.Flags().StringVar(&logFile, "log-file", "", "Log file path (default: stderr)")
 
 	// Validate command
 	validateCmd := &cobra.Command{
@@ -122,6 +131,19 @@ func main() {
 	initCmd.Flags().BoolVar(&initGlobal, "global", false, "Create global config at ~/.cortex/config.yml")
 	initCmd.Flags().BoolVar(&initForce, "force", false, "Overwrite existing file")
 
+	// Dry-run command - show what would execute without running
+	dryRunCmd := &cobra.Command{
+		Use:   "dry-run",
+		Short: "Show what would execute without running",
+		Long:  "Displays the execution plan with expanded prompts without actually running tasks",
+		RunE:  dryRunWorkflow,
+	}
+
+	var dryRunJSON bool
+	dryRunCmd.Flags().StringArrayVarP(&configFiles, "file", "f", nil, "Path to Cortexfile(s)")
+	dryRunCmd.Flags().BoolVar(&dryRunJSON, "json", false, "Output in JSON format")
+	dryRunCmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
+
 	// Master command - run MasterCortex.yml
 	masterCmd := &cobra.Command{
 		Use:   "master",
@@ -140,11 +162,28 @@ func main() {
 	masterCmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 	masterCmd.Flags().BoolVar(&compact, "compact", false, "Use compact output")
 
+	// Graph command - visualize DAG
+	graphCmd := &cobra.Command{
+		Use:   "graph",
+		Short: "Visualize the task execution graph",
+		Long:  "Displays the task dependency graph as ASCII art or Graphviz DOT format",
+		RunE:  showGraph,
+	}
+
+	var graphFormat string
+	var graphCompact bool
+	graphCmd.Flags().StringArrayVarP(&configFiles, "file", "f", nil, "Path to Cortexfile(s)")
+	graphCmd.Flags().StringVar(&graphFormat, "format", "ascii", "Output format: ascii or dot")
+	graphCmd.Flags().BoolVar(&graphCompact, "compact", false, "Show compact single-line representation")
+	graphCmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
+
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(sessionsCmd)
 	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(dryRunCmd)
 	rootCmd.AddCommand(masterCmd)
+	rootCmd.AddCommand(graphCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -155,6 +194,11 @@ func runWorkflow(cmd *cobra.Command, args []string) error {
 	// Handle color settings
 	if noColor {
 		ui.SetColorsEnabled(false)
+	}
+
+	// Set up structured logging if enabled
+	if cmd.Flags().Changed("log-format") || cmd.Flags().Changed("log-level") || cmd.Flags().Changed("log-file") {
+		setupLogger(cmd)
 	}
 
 	// Print banner
@@ -322,6 +366,20 @@ func runSingleConfig(cmd *cobra.Command, configPath string) (bool, int, error) {
 	// Print session info
 	ui.PrintSessionInfo(store.RunID(), store.RunDir())
 
+	// Get project name
+	projectName := filepath.Base(cwd)
+
+	// Log run start
+	observability.Info("Starting workflow execution",
+		observability.WithEvent(observability.EventRunStart),
+		observability.WithData(observability.RunData{
+			RunID:      store.RunID(),
+			Project:    projectName,
+			TaskCount:  len(plan.Tasks),
+			ConfigFile: configPath,
+		}),
+	)
+
 	// Set up webhook manager
 	webhookMgr := webhook.NewManager(merged.Webhooks)
 	if webhookMgr.HasWebhooks() {
@@ -329,7 +387,6 @@ func runSingleConfig(cmd *cobra.Command, configPath string) (bool, int, error) {
 	}
 
 	// Send run_start event
-	projectName := filepath.Base(cwd)
 	webhookMgr.Send(webhook.NewRunStartEvent(store.RunID(), projectName))
 
 	// Set up agent registry
@@ -390,9 +447,31 @@ func runSingleConfig(cmd *cobra.Command, configPath string) (bool, int, error) {
 	))
 
 	if err != nil {
+		observability.Error("Workflow execution failed",
+			observability.WithEvent(observability.EventRunComplete),
+			observability.WithData(observability.RunData{
+				RunID:     store.RunID(),
+				Project:   projectName,
+				TaskCount: len(result.Tasks),
+				Duration:  duration.String(),
+				Success:   false,
+			}),
+		)
 		ui.PrintSummary(false, store.RunDir())
 		return false, len(result.Tasks), err
 	}
+
+	// Log run complete
+	observability.Info("Workflow execution completed",
+		observability.WithEvent(observability.EventRunComplete),
+		observability.WithData(observability.RunData{
+			RunID:     store.RunID(),
+			Project:   projectName,
+			TaskCount: len(result.Tasks),
+			Duration:  duration.String(),
+			Success:   result.Success,
+		}),
+	)
 
 	// Print summary
 	ui.PrintSummary(result.Success, store.RunDir())
@@ -449,11 +528,299 @@ func validateConfig(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// DryRunTask represents a task in dry-run output
+type DryRunTask struct {
+	Name         string   `json:"name"`
+	Agent        string   `json:"agent"`
+	Tool         string   `json:"tool"`
+	Model        string   `json:"model,omitempty"`
+	Dependencies []string `json:"dependencies,omitempty"`
+	Prompt       string   `json:"prompt"`
+	Workdir      string   `json:"workdir,omitempty"`
+	Level        int      `json:"level"`
+}
+
+// DryRunOutput represents the full dry-run output
+type DryRunOutput struct {
+	ConfigFile  string       `json:"config_file"`
+	TotalTasks  int          `json:"total_tasks"`
+	TotalLevels int          `json:"total_levels"`
+	Tasks       []DryRunTask `json:"tasks"`
+}
+
+func dryRunWorkflow(cmd *cobra.Command, args []string) error {
+	jsonOutput, _ := cmd.Flags().GetBool("json")
+
+	// Handle color settings
+	if noColor || jsonOutput {
+		ui.SetColorsEnabled(false)
+	}
+
+	// Resolve config files
+	configPaths, err := resolveConfigFiles()
+	if err != nil {
+		if !jsonOutput {
+			ui.Error("Failed to resolve config files: %s", err)
+		}
+		return err
+	}
+
+	if len(configPaths) == 0 {
+		if !jsonOutput {
+			ui.Error("No Cortexfile found")
+		}
+		return fmt.Errorf("no Cortexfile found")
+	}
+
+	configPath := configPaths[0]
+
+	// Load config
+	localCfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		if !jsonOutput {
+			ui.Error("Failed to load config: %s", err)
+		}
+		return err
+	}
+
+	// Validate
+	if err := config.ValidateWithFile(localCfg, configPath); err != nil {
+		if !jsonOutput {
+			ui.Error("Validation failed: %s", err)
+		}
+		return err
+	}
+
+	// Build plan
+	plan, err := planner.BuildPlan(localCfg)
+	if err != nil {
+		if !jsonOutput {
+			ui.Error("Failed to build plan: %s", err)
+		}
+		return err
+	}
+
+	// Build execution levels
+	levels := planner.BuildExecutionLevels(plan.DAG)
+
+	// Create task-to-level mapping
+	taskLevel := make(map[string]int)
+	for levelIdx, level := range levels {
+		for _, taskName := range level.Tasks {
+			taskLevel[taskName] = levelIdx
+		}
+	}
+
+	// Build output
+	output := DryRunOutput{
+		ConfigFile:  configPath,
+		TotalTasks:  len(plan.Tasks),
+		TotalLevels: len(levels),
+		Tasks:       make([]DryRunTask, 0, len(plan.Tasks)),
+	}
+
+	for _, t := range plan.Tasks {
+		output.Tasks = append(output.Tasks, DryRunTask{
+			Name:         t.Name,
+			Agent:        t.AgentName,
+			Tool:         t.Tool,
+			Model:        t.Model,
+			Dependencies: t.Dependencies,
+			Prompt:       t.Prompt,
+			Workdir:      t.Workdir,
+			Level:        taskLevel[t.Name],
+		})
+	}
+
+	if jsonOutput {
+		// Output JSON
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(output)
+	}
+
+	// Pretty print
+	fmt.Printf("\n%s%sDry Run%s - %s\n", ui.Bold, ui.Orange, ui.Reset, configPath)
+	fmt.Printf("%s═══════════════════════════════════════════════════%s\n\n", ui.Dim, ui.Reset)
+
+	fmt.Printf("  %sTasks:%s  %d\n", ui.Dim, ui.Reset, output.TotalTasks)
+	fmt.Printf("  %sLevels:%s %d\n\n", ui.Dim, ui.Reset, output.TotalLevels)
+
+	// Group tasks by level
+	for levelIdx, level := range levels {
+		fmt.Printf("%s%sLevel %d%s", ui.Bold, ui.Cyan, levelIdx, ui.Reset)
+		if len(level.Tasks) > 1 {
+			fmt.Printf(" %s(parallel)%s", ui.Dim, ui.Reset)
+		}
+		fmt.Println()
+		fmt.Printf("%s────────────────────────────────────────────────%s\n", ui.Dim, ui.Reset)
+
+		for _, taskName := range level.Tasks {
+			// Find the task
+			for _, t := range plan.Tasks {
+				if t.Name == taskName {
+					fmt.Printf("\n  %s▸ %s%s%s\n", ui.Orange, ui.Bold, t.Name, ui.Reset)
+					fmt.Printf("    %sAgent:%s %s\n", ui.Dim, ui.Reset, t.AgentName)
+					fmt.Printf("    %sTool:%s  %s", ui.Dim, ui.Reset, t.Tool)
+					if t.Model != "" {
+						fmt.Printf(" %s(%s)%s", ui.Dim, t.Model, ui.Reset)
+					}
+					fmt.Println()
+
+					if len(t.Dependencies) > 0 {
+						fmt.Printf("    %sNeeds:%s %s\n", ui.Dim, ui.Reset, strings.Join(t.Dependencies, ", "))
+					}
+
+					if t.Workdir != "" {
+						fmt.Printf("    %sWorkdir:%s %s\n", ui.Dim, ui.Reset, t.Workdir)
+					}
+
+					// Show prompt (truncated)
+					fmt.Printf("    %sPrompt:%s\n", ui.Dim, ui.Reset)
+					promptLines := strings.Split(strings.TrimSpace(t.Prompt), "\n")
+					maxLines := 5
+					for i, line := range promptLines {
+						if i >= maxLines {
+							fmt.Printf("      %s... (%d more lines)%s\n", ui.Dim, len(promptLines)-maxLines, ui.Reset)
+							break
+						}
+						// Truncate long lines
+						if len(line) > 70 {
+							line = line[:67] + "..."
+						}
+						fmt.Printf("      %s%s%s\n", ui.Dim, line, ui.Reset)
+					}
+					break
+				}
+			}
+		}
+		fmt.Println()
+	}
+
+	fmt.Printf("%s✓ Dry run complete. No tasks were executed.%s\n\n", ui.Green, ui.Reset)
+
+	return nil
+}
+
+func showGraph(cmd *cobra.Command, args []string) error {
+	format, _ := cmd.Flags().GetString("format")
+	compactGraph, _ := cmd.Flags().GetBool("compact")
+
+	// Handle color settings
+	if noColor || format == "dot" {
+		ui.SetColorsEnabled(false)
+	}
+
+	// Resolve config files
+	configPaths, err := resolveConfigFiles()
+	if err != nil {
+		ui.Error("Failed to resolve config files: %s", err)
+		return err
+	}
+
+	if len(configPaths) == 0 {
+		ui.Error("No Cortexfile found")
+		return fmt.Errorf("no Cortexfile found")
+	}
+
+	configPath := configPaths[0]
+
+	// Load config
+	localCfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		ui.Error("Failed to load config: %s", err)
+		return err
+	}
+
+	// Validate
+	if err := config.ValidateWithFile(localCfg, configPath); err != nil {
+		ui.Error("Validation failed: %s", err)
+		return err
+	}
+
+	// Build plan
+	plan, err := planner.BuildPlan(localCfg)
+	if err != nil {
+		ui.Error("Failed to build plan: %s", err)
+		return err
+	}
+
+	// Render graph
+	if compactGraph {
+		fmt.Println(planner.RenderCompact(plan.DAG))
+	} else {
+		graphFormat := planner.FormatASCII
+		if format == "dot" {
+			graphFormat = planner.FormatDOT
+		}
+		fmt.Print(planner.RenderGraph(plan.DAG, plan.Tasks, graphFormat))
+	}
+
+	return nil
+}
+
 func listSessions(cmd *cobra.Command, args []string) error {
 	project, _ := cmd.Flags().GetString("project")
 	limit, _ := cmd.Flags().GetInt("limit")
 	failedOnly, _ := cmd.Flags().GetBool("failed")
 
+	// If no project specified, show interactive project selector
+	if project == "" {
+		return listSessionsInteractive(limit, failedOnly)
+	}
+
+	// Show sessions for specific project
+	return showProjectSessions(project, 0, failedOnly)
+}
+
+func listSessionsInteractive(limit int, failedOnly bool) error {
+	// Get project summaries
+	summaries, err := state.ListProjectSummaries(limit)
+	if err != nil {
+		ui.Error("Failed to list projects: %s", err)
+		return err
+	}
+
+	if len(summaries) == 0 {
+		fmt.Printf("%sNo sessions found.%s\n", ui.Dim, ui.Reset)
+		return nil
+	}
+
+	// Build selectable items
+	items := make([]ui.SelectableItem, len(summaries))
+	for i, s := range summaries {
+		timeStr := s.LatestTime.Format("2006-01-02 15:04:05")
+		if s.LatestTime.IsZero() {
+			timeStr = "unknown"
+		}
+
+		items[i] = ui.SelectableItem{
+			Label:       fmt.Sprintf("%-25s %s%s%s  %s%d sessions%s", s.Name, ui.Dim, timeStr, ui.Reset, ui.Cyan, s.SessionCount, ui.Reset),
+			Description: "",
+			Value:       s.Name,
+		}
+	}
+
+	// Show interactive selector
+	selector := ui.NewInteractiveSelector("Select a project", items)
+	selectedIdx := selector.Run()
+
+	if selectedIdx < 0 {
+		return nil // Cancelled
+	}
+
+	selectedProject := summaries[selectedIdx].Name
+
+	// Clear screen for clean display of selected project sessions
+	fmt.Print("\033[2J\033[H") // Clear screen and move cursor to home position
+
+	// Show all sessions for the selected project
+	fmt.Printf("%s%s%s Sessions:\n", ui.Bold, selectedProject, ui.Reset)
+	fmt.Printf("%s─────────────────────────────────────────────────%s\n\n", ui.Dim, ui.Reset)
+	return showProjectSessions(selectedProject, 0, failedOnly)
+}
+
+func showProjectSessions(project string, limit int, failedOnly bool) error {
 	sessions, err := state.ListSessions(state.SessionFilter{
 		Project:    project,
 		Limit:      limit,
@@ -466,14 +833,9 @@ func listSessions(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(sessions) == 0 {
-		fmt.Printf("%sNo sessions found.%s\n", ui.Dim, ui.Reset)
-		if project != "" {
-			fmt.Printf("%sTry without --project filter.%s\n", ui.Dim, ui.Reset)
-		}
+		fmt.Printf("%sNo sessions found for project '%s'.%s\n", ui.Dim, project, ui.Reset)
 		return nil
 	}
-
-	fmt.Printf("%s%sSessions%s (%d):\n\n", ui.Bold, ui.Orange, ui.Reset, len(sessions))
 
 	for _, s := range sessions {
 		// Status indicator
@@ -499,10 +861,16 @@ func listSessions(cmd *cobra.Command, args []string) error {
 			ui.Bold, s.RunID, ui.Reset,
 			ui.Dim, timeStr, ui.Reset,
 		)
-		fmt.Printf("      %sProject:%s %s  %sTasks:%s %d%s\n",
-			ui.Dim, ui.Reset, s.Project,
+
+		// Show tasks and tokens
+		tokenInfo := ""
+		if s.TotalTokens > 0 {
+			tokenInfo = fmt.Sprintf(" %s│%s %s%s%s tokens",
+				ui.Dim, ui.Reset, ui.Cyan, ui.FormatTokenCount(s.TotalTokens), ui.Reset)
+		}
+		fmt.Printf("      %sTasks:%s %d%s%s\n",
 			ui.Dim, ui.Reset, s.TaskCount,
-			durationStr,
+			durationStr, tokenInfo,
 		)
 	}
 
@@ -948,4 +1316,33 @@ func maxOrDefault(val, def int) int {
 		return val
 	}
 	return def
+}
+
+// setupLogger configures the global logger based on CLI flags
+func setupLogger(cmd *cobra.Command) {
+	format := observability.FormatText
+	if logFormat == "json" {
+		format = observability.FormatJSON
+	}
+
+	level := observability.ParseLogLevel(logLevel)
+
+	var output = os.Stderr
+	if logFile != "" {
+		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			ui.Warning("Failed to open log file %s: %s", logFile, err)
+		} else {
+			output = f
+		}
+	}
+
+	logger := observability.NewLogger(observability.LoggerConfig{
+		Level:   level,
+		Format:  format,
+		Output:  output,
+		Enabled: true,
+	})
+
+	observability.SetGlobalLogger(logger)
 }

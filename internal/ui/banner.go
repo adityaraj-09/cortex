@@ -160,6 +160,30 @@ func PrintTaskStatus(status string, success bool, duration string) {
 	fmt.Printf("%s└─%s %s\n", Orange, Reset, statusStr)
 }
 
+// PrintTaskStatusWithTokens prints task completion with token usage
+func PrintTaskStatusWithTokens(status string, success bool, duration string, inputTokens, outputTokens int) {
+	var statusStr string
+	tokenInfo := ""
+	if inputTokens > 0 || outputTokens > 0 {
+		tokenInfo = fmt.Sprintf(" %s│ %s%d%s in / %s%d%s out%s",
+			Dim, Cyan, inputTokens, Reset+Dim, Cyan, outputTokens, Reset+Dim, Reset)
+	}
+	if success {
+		statusStr = fmt.Sprintf("%s✓ %s%s %s(%s)%s%s", Green, status, Reset, Dim, duration, Reset, tokenInfo)
+	} else {
+		statusStr = fmt.Sprintf("%s✗ %s%s %s(%s)%s%s", Red, status, Reset, Dim, duration, Reset, tokenInfo)
+	}
+	fmt.Printf("%s└─%s %s\n", Orange, Reset, statusStr)
+}
+
+// FormatTokenCount formats a token count with commas for readability
+func FormatTokenCount(n int) string {
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
+	}
+	return fmt.Sprintf("%d,%03d", n/1000, n%1000)
+}
+
 // PrintTaskRunning prints running status
 func PrintTaskRunning() {
 	fmt.Printf("%s│%s  %s● Running...%s\n", Orange, Reset, Orange, Reset)
@@ -171,6 +195,17 @@ func PrintTaskRunningWithHint(showHint bool) {
 		fmt.Printf("%s│%s  %s● Running...%s  %s[Ctrl+O to expand]%s\n", Orange, Reset, Orange, Reset, Dim, Reset)
 	} else {
 		fmt.Printf("%s│%s  %s● Running...%s\n", Orange, Reset, Orange, Reset)
+	}
+}
+
+// PrintTaskRunningWithProgress prints running status with progress bar
+func PrintTaskRunningWithProgress(taskNum, totalTasks int, showHint bool) {
+	bar := RenderProgressBar(taskNum-1, totalTasks) // taskNum-1 because current task is running
+	if showHint {
+		fmt.Printf("%s│%s  %s● Running...%s %s %s[Ctrl+O to expand]%s\n",
+			Orange, Reset, Orange, Reset, bar, Dim, Reset)
+	} else {
+		fmt.Printf("%s│%s  %s● Running...%s %s\n", Orange, Reset, Orange, Reset, bar)
 	}
 }
 
@@ -212,4 +247,28 @@ func PrintStreamStart() {
 // PrintStreamEnd prints a visual separator after streaming output
 func PrintStreamEnd() {
 	fmt.Printf("%s│%s  %s─────────────%s\n", Orange, Reset, Dim, Reset)
+}
+
+// PrintTaskProgress prints task progress with spinner
+func PrintTaskProgress(taskNum, totalTasks int, taskName string, elapsed string) {
+	spinner := SpinnerFrames[0] // Use first frame for static display
+	bar := RenderProgressBar(taskNum, totalTasks)
+	fmt.Printf("\r%s│%s  %s%s%s %s%s%s %s %s(%s)%s",
+		Orange, Reset,
+		Orange, spinner, Reset,
+		Bold, taskName, Reset,
+		bar,
+		Dim, elapsed, Reset,
+	)
+}
+
+// PrintOverallProgress prints overall workflow progress
+func PrintOverallProgress(completed, total int, elapsed string) {
+	bar := RenderProgressBar(completed, total)
+	fmt.Printf("\n  %sProgress:%s %s %d/%d %s(%s)%s\n",
+		Dim, Reset,
+		bar,
+		completed, total,
+		Dim, elapsed, Reset,
+	)
 }

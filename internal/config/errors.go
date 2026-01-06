@@ -98,7 +98,12 @@ func NewConfigErrorWithHint(file string, line int, message, hint string) *Config
 func ErrUndefinedAgent(file string, line int, taskName, agentName string, availableAgents []string) *ConfigError {
 	hint := ""
 	if len(availableAgents) > 0 {
-		hint = fmt.Sprintf("Available agents: %s", strings.Join(availableAgents, ", "))
+		// Try to find a close match
+		if suggestion := SuggestClosestMatch(agentName, availableAgents); suggestion != "" {
+			hint = fmt.Sprintf("Did you mean %q? Available agents: %s", suggestion, strings.Join(availableAgents, ", "))
+		} else {
+			hint = fmt.Sprintf("Available agents: %s", strings.Join(availableAgents, ", "))
+		}
 	}
 	return &ConfigError{
 		File:    file,
@@ -110,11 +115,17 @@ func ErrUndefinedAgent(file string, line int, taskName, agentName string, availa
 
 // ErrUnsupportedTool creates an error for an unsupported tool.
 func ErrUnsupportedTool(file string, line int, agentName, tool string) *ConfigError {
+	hint := ""
+	if suggestion := SuggestClosestMatch(tool, SupportedTools); suggestion != "" {
+		hint = fmt.Sprintf("Did you mean %q? Supported tools: %s", suggestion, strings.Join(SupportedTools, ", "))
+	} else {
+		hint = fmt.Sprintf("Supported tools: %s", strings.Join(SupportedTools, ", "))
+	}
 	return &ConfigError{
 		File:    file,
 		Line:    line,
 		Message: fmt.Sprintf("agent %q uses unsupported tool %q", agentName, tool),
-		Hint:    fmt.Sprintf("Supported tools: %s", strings.Join(SupportedTools, ", ")),
+		Hint:    hint,
 	}
 }
 
@@ -122,7 +133,12 @@ func ErrUnsupportedTool(file string, line int, agentName, tool string) *ConfigEr
 func ErrUndefinedDependency(file string, line int, taskName, depName string, availableTasks []string) *ConfigError {
 	hint := ""
 	if len(availableTasks) > 0 {
-		hint = fmt.Sprintf("Available tasks: %s", strings.Join(availableTasks, ", "))
+		// Try to find a close match
+		if suggestion := SuggestClosestMatch(depName, availableTasks); suggestion != "" {
+			hint = fmt.Sprintf("Did you mean %q? Available tasks: %s", suggestion, strings.Join(availableTasks, ", "))
+		} else {
+			hint = fmt.Sprintf("Available tasks: %s", strings.Join(availableTasks, ", "))
+		}
 	}
 	return &ConfigError{
 		File:    file,
